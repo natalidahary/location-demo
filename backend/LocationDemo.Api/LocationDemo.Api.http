@@ -1,0 +1,29 @@
+@LocationDemo.Api_HostAddress = http://localhost:5206
+
+POST {{LocationDemo.Api_HostAddress}}/locations/geocode
+Content-Type: application/json
+
+{
+  "address": "5 Av de l'Opera, Paris",
+  "city": "Paris"
+}
+
+###
+
+POST {{LocationDemo.Api_HostAddress}}/locations/route
+Content-Type: application/json
+
+{
+  "from": { "latitude": 48.8566, "longitude": 2.3522 },
+  "to": { "latitude": 48.8584, "longitude": 2.2945 }
+}
+
+###
+
+POST {{LocationDemo.Api_HostAddress}}/locations/validate
+Content-Type: application/json
+
+{
+  "areaId": "caesarea",
+  "coordinate": { "latitude": 32.5, "longitude": 34.9 }
+}

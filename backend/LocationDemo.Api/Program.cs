@@ -1,0 +1,172 @@
+using LocationDemo.Api.Location.Abstractions;
+using LocationDemo.Api.Location.Configuration;
+using LocationDemo.Api.Location.Models;
+using LocationDemo.Api.Location.Quality;
+using LocationDemo.Api.Location.Spatial;
+using Microsoft.Extensions.Options;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddOpenApi();
+builder.Services.AddLocationServices(builder.Configuration);
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend", policy =>
+        policy.WithOrigins("http://localhost:5173")
+            .AllowAnyHeader()
+            .AllowAnyMethod());
+});
+
+var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+}
+
+app.UseHttpsRedirection();
+app.UseCors("AllowFrontend");
+
+app.MapPost("/locations/geocode", async (
+    GeocodeRequest request,
+    ILocationService service,
+    ISpatialValidator validator,
+    IOptions<GeocodeQualityOptions> qualityOptions,
+    IOptions<SpatialValidationOptions> options,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Address))
+    {
+        return Results.BadRequest(ApiResponse<string>.Fail(
+            "InvalidAddress",
+            "Address is required."));
+    }
+
+    var result = await service.GeocodeAsync(request.Address, ct);
+
+    var quality = qualityOptions.Value;
+    if (quality.MinConfidence > 0 && result.Confidence < quality.MinConfidence)
+    {
+        return Results.Conflict(ApiResponse<string>.Fail(
+            "LowConfidenceMatch",
+            $"Geocoding confidence {result.Confidence:0.00} is below required threshold {quality.MinConfidence:0.00}."));
+    }
+
+    if (quality.RequireHouseNumber)
+    {
+        var isHouseLevel = string.Equals(result.MatchLevel, "houseNumber", StringComparison.OrdinalIgnoreCase)
+            || !string.IsNullOrWhiteSpace(result.HouseNumber);
+
+        if (!isHouseLevel)
+        {
+            return Results.Conflict(ApiResponse<string>.Fail(
+                "MatchLevelTooLow",
+                "Geocoding result is not at house-level precision."));
+        }
+    }
+
+    if (quality.EnforceCityMatch && !string.IsNullOrWhiteSpace(request.City))
+    {
+        if (!string.Equals(result.City, request.City, StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.Conflict(ApiResponse<string>.Fail(
+                "CityMismatch",
+                $"Geocoding city '{result.City ?? "Unknown"}' does not match requested city '{request.City}'."));
+        }
+    }
+
+    var areaId = options.Value.DefaultAreaId;
+    if (string.IsNullOrWhiteSpace(areaId))
+    {
+        return Results.Json(
+            ApiResponse<string>.Fail(
+                "SpatialValidationNotConfigured",
+                "Spatial validation is not configured. Set SpatialValidation:DefaultAreaId."),
+            statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    var validation = await validator.IsInsideAsync(areaId, new Coordinate(result.Latitude, result.Longitude), ct);
+    var response = new GeocodeValidationResult
+    {
+        Geocode = result,
+        Validation = validation
+    };
+
+    if (!validation.IsInside)
+    {
+        return Results.Conflict(ApiResponse<GeocodeValidationResult>.Fail(
+            "OutOfServiceArea",
+            $"The address is outside the {validation.AreaId} responsibility zone.",
+            new Dictionary<string, object>
+            {
+                ["areaId"] = validation.AreaId
+            }));
+    }
+
+    return Results.Ok(ApiResponse<GeocodeValidationResult>.Ok(response));
+})
+.WithName("Geocode");
+
+app.MapPost("/locations/route", async (
+    RouteRequest request,
+    ILocationService service,
+    ISpatialValidator validator,
+    IOptions<SpatialValidationOptions> options,
+    CancellationToken ct) =>
+{
+    var areaId = options.Value.DefaultAreaId;
+    if (string.IsNullOrWhiteSpace(areaId))
+    {
+        return Results.Json(
+            ApiResponse<string>.Fail(
+                "SpatialValidationNotConfigured",
+                "Spatial validation is not configured. Set SpatialValidation:DefaultAreaId."),
+            statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    var fromValidation = await validator.IsInsideAsync(areaId, request.From, ct);
+    if (!fromValidation.IsInside)
+    {
+        return Results.Conflict(ApiResponse<SpatialValidationResult>.Fail(
+            "OutOfServiceArea",
+            $"The route origin is outside the {fromValidation.AreaId} responsibility zone.",
+            new Dictionary<string, object>
+            {
+                ["areaId"] = fromValidation.AreaId,
+                ["point"] = "from"
+            }));
+    }
+
+    var toValidation = await validator.IsInsideAsync(areaId, request.To, ct);
+    if (!toValidation.IsInside)
+    {
+        return Results.Conflict(ApiResponse<SpatialValidationResult>.Fail(
+            "OutOfServiceArea",
+            $"The route destination is outside the {toValidation.AreaId} responsibility zone.",
+            new Dictionary<string, object>
+            {
+                ["areaId"] = toValidation.AreaId,
+                ["point"] = "to"
+            }));
+    }
+
+    var result = await service.GetRouteAsync(request.From, request.To, ct);
+    return Results.Ok(ApiResponse<RouteResult>.Ok(result));
+})
+.WithName("Route");
+
+app.MapPost("/locations/validate", async (SpatialValidationRequest request, ISpatialValidator validator, CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.AreaId))
+    {
+        return Results.BadRequest(ApiResponse<string>.Fail(
+            "InvalidAreaId",
+            "AreaId is required."));
+    }
+
+    var result = await validator.IsInsideAsync(request.AreaId, request.Coordinate, ct);
+    return Results.Ok(ApiResponse<SpatialValidationResult>.Ok(result));
+})
+.WithName("ValidateLocation");
+
+app.Run();

@@ -1,0 +1,24 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "caesarea",
+        "name": "Caesarea Service Area"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [34.80, 32.40],
+            [35.00, 32.40],
+            [35.00, 32.60],
+            [34.80, 32.60],
+            [34.80, 32.40]
+          ]
+        ]
+      }
+    }
+  ]
+}

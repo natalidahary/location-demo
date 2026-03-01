@@ -15,6 +15,11 @@ obj/
 # VS Code
 .vscode/
 
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
 # Dotnet artifacts
 *.nupkg
 *.snupkg
