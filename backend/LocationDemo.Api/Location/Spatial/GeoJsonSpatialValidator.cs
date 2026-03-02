@@ -90,7 +90,13 @@ public sealed class GeoJsonSpatialValidator : ISpatialValidator
                 continue;
             }
 
-            results[id] = feature.Geometry;
+            var cleaned = feature.Geometry;
+            if (!cleaned.IsValid)
+            {
+                cleaned = cleaned.Buffer(0);
+            }
+
+            results[id] = cleaned;
         }
 
         return results;

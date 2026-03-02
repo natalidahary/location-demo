@@ -47,9 +47,19 @@ app.MapPost("/locations/geocode", async (
     var quality = qualityOptions.Value;
     if (quality.MinConfidence > 0 && result.Confidence < quality.MinConfidence)
     {
-        return Results.Conflict(ApiResponse<string>.Fail(
+        return Results.Conflict(ApiResponse<GeocodeValidationResult>.Fail(
             "LowConfidenceMatch",
-            $"Geocoding confidence {result.Confidence:0.00} is below required threshold {quality.MinConfidence:0.00}."));
+            $"Geocoding confidence {result.Confidence:0.00} is below required threshold {quality.MinConfidence:0.00}.",
+            new GeocodeValidationResult
+            {
+                Geocode = result,
+                Validation = new SpatialValidationResult
+                {
+                    AreaId = options.Value.DefaultAreaId,
+                    IsInside = false,
+                    Reason = "Low confidence match."
+                }
+            }));
     }
 
     if (quality.RequireHouseNumber)
@@ -59,9 +69,19 @@ app.MapPost("/locations/geocode", async (
 
         if (!isHouseLevel)
         {
-            return Results.Conflict(ApiResponse<string>.Fail(
+            return Results.Conflict(ApiResponse<GeocodeValidationResult>.Fail(
                 "MatchLevelTooLow",
-                "Geocoding result is not at house-level precision."));
+                "Geocoding result is not at house-level precision.",
+                new GeocodeValidationResult
+                {
+                    Geocode = result,
+                    Validation = new SpatialValidationResult
+                    {
+                        AreaId = options.Value.DefaultAreaId,
+                        IsInside = false,
+                        Reason = "Match level too low."
+                    }
+                }));
         }
     }
 
@@ -69,9 +89,19 @@ app.MapPost("/locations/geocode", async (
     {
         if (!string.Equals(result.City, request.City, StringComparison.OrdinalIgnoreCase))
         {
-            return Results.Conflict(ApiResponse<string>.Fail(
+            return Results.Conflict(ApiResponse<GeocodeValidationResult>.Fail(
                 "CityMismatch",
-                $"Geocoding city '{result.City ?? "Unknown"}' does not match requested city '{request.City}'."));
+                $"Geocoding city '{result.City ?? "Unknown"}' does not match requested city '{request.City}'.",
+                new GeocodeValidationResult
+                {
+                    Geocode = result,
+                    Validation = new SpatialValidationResult
+                    {
+                        AreaId = options.Value.DefaultAreaId,
+                        IsInside = false,
+                        Reason = "City mismatch."
+                    }
+                }));
         }
     }
 
@@ -97,6 +127,7 @@ app.MapPost("/locations/geocode", async (
         return Results.Conflict(ApiResponse<GeocodeValidationResult>.Fail(
             "OutOfServiceArea",
             $"The address is outside the {validation.AreaId} responsibility zone.",
+            response,
             new Dictionary<string, object>
             {
                 ["areaId"] = validation.AreaId
@@ -168,5 +199,24 @@ app.MapPost("/locations/validate", async (SpatialValidationRequest request, ISpa
     return Results.Ok(ApiResponse<SpatialValidationResult>.Ok(result));
 })
 .WithName("ValidateLocation");
+
+app.MapGet("/locations/service-areas", (IOptions<SpatialValidationOptions> options, IHostEnvironment env) =>
+{
+    var path = options.Value.GeoJsonPath;
+    if (!Path.IsPathRooted(path))
+    {
+        path = Path.Combine(env.ContentRootPath, path);
+    }
+
+    if (!File.Exists(path))
+    {
+        return Results.NotFound(ApiResponse<string>.Fail(
+            "ServiceAreasNotFound",
+            "Service area GeoJSON not found."));
+    }
+
+    return Results.File(path, "application/geo+json");
+})
+.WithName("ServiceAreas");
 
 app.Run();

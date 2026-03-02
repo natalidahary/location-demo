@@ -24,4 +24,14 @@ public sealed class ApiResponse<T>
             Message = message,
             Metadata = metadata
         };
+
+    public static ApiResponse<T> Fail(string errorCode, string message, T data, IDictionary<string, object>? metadata = null)
+        => new()
+        {
+            Success = false,
+            ErrorCode = errorCode,
+            Message = message,
+            Data = data,
+            Metadata = metadata
+        };
 }
