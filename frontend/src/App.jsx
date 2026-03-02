@@ -9,6 +9,7 @@ export default function App() {
   const polygonGroupRef = useRef(null);
   const isolineGroupRef = useRef(null);
   const poiGroupRef = useRef(null);
+  const routeGroupRef = useRef(null);
   const uiRef = useRef(null);
   const clickHandlerRef = useRef(null);
   const selectedPointRef = useRef(null);
@@ -76,6 +77,8 @@ export default function App() {
       map.addObject(isolineGroupRef.current);
       poiGroupRef.current = new window.H.map.Group();
       map.addObject(poiGroupRef.current);
+      routeGroupRef.current = new window.H.map.Group();
+      map.addObject(routeGroupRef.current);
 
       clickHandlerRef.current = async (evt) => {
         const pointer = evt.currentPointer;
@@ -508,6 +511,7 @@ export default function App() {
 
     if (poiVisible) {
       poiGroupRef.current?.removeAll();
+      routeGroupRef.current?.removeAll();
       setPoiVisible(false);
       setPoiResults([]);
       setStatus("POI cleared.");
@@ -557,15 +561,66 @@ export default function App() {
     }
   };
 
+  const drawRouteTo = async (destination) => {
+    if (!selectedPointRef.current) {
+      setStatus("Select a location first.");
+      return;
+    }
+    try {
+      const response = await fetch(`${apiBase}/locations/route`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from: {
+            latitude: selectedPointRef.current.lat,
+            longitude: selectedPointRef.current.lng
+          },
+          to: {
+            latitude: destination.lat,
+            longitude: destination.lng
+          }
+        })
+      });
+      const payload = await response.json();
+      if (!payload.success) {
+        setStatus(payload.message || payload.errorCode || "Route failed.");
+        return;
+      }
+
+      const data = payload.data;
+      const polyline = data.polyline;
+      if (!polyline || !window.H?.geo?.LineString) {
+        setStatus("Route polyline missing.");
+        return;
+      }
+
+      routeGroupRef.current?.removeAll();
+      const lineString = window.H.geo.LineString.fromFlexiblePolyline(polyline);
+      const routeLine = new window.H.map.Polyline(lineString, {
+        style: { strokeColor: "#1f3ea8", lineWidth: 5 }
+      });
+      routeGroupRef.current?.addObject(routeLine);
+      mapInstance.current?.getViewModel().setLookAtData({
+        bounds: routeLine.getBoundingBox()
+      });
+
+      const km = (data.distanceMeters / 1000).toFixed(1);
+      const min = Math.round(data.durationSeconds / 60);
+      setStatus(`Route: ${km} km, ${min} min`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Route failed.");
+    }
+  };
+
   return (
     <div className="page">
       <header className="header">
         <div>
           <p className="eyebrow">Location Demo</p>
-          <h1>HERE Geocoding</h1>
+          <h1>HERE Geo Platform</h1>
           <p className="subtitle">
-            Validate addresses through your backend and visualize the result on
-            a HERE map.
+            Provider-agnostic backend with geocoding, validation, routing,
+            isolines, and POI search.
           </p>
         </div>
         <div className="status">{status}</div>
@@ -665,6 +720,8 @@ export default function App() {
                         uiRef.current?.removeBubble(bubble);
                       }, 3500);
                     }
+
+                    drawRouteTo(point);
                   }}
                 >
                   <span className="poi-title">{item.title}</span>

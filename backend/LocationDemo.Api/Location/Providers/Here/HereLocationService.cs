@@ -60,16 +60,19 @@ public sealed class HereLocationService : ILocationService
 
         var origin = $"{from.Latitude},{from.Longitude}";
         var destination = $"{to.Latitude},{to.Longitude}";
-        var url = $"{_options.RoutingBaseUrl}/routes?transportMode=car&origin={origin}&destination={destination}&return=summary&apiKey={_options.ApiKey}";
+        var url = $"{_options.RoutingBaseUrl}/routes?transportMode=car&origin={origin}&destination={destination}&return=summary,polyline&apiKey={_options.ApiKey}";
 
         var response = await _httpClient.GetFromJsonAsync<HereRouteResponse>(url, cancellationToken);
-        var summary = response?.Routes?.FirstOrDefault()?.Sections?.FirstOrDefault()?.Summary;
+        var section = response?.Routes?.FirstOrDefault()?.Sections?.FirstOrDefault();
+        var summary = section?.Summary;
+        var polyline = section?.Polyline;
 
         return new RouteResult
         {
             DistanceMeters = summary?.Length ?? 0,
             DurationSeconds = summary?.Duration ?? 0,
-            Path = new[] { from, to }
+            Path = new[] { from, to },
+            Polyline = polyline
         };
     }
 
@@ -313,6 +316,9 @@ public sealed class HereLocationService : ILocationService
     {
         [JsonPropertyName("summary")]
         public HereRouteSummary? Summary { get; init; }
+
+        [JsonPropertyName("polyline")]
+        public string? Polyline { get; init; }
     }
 
     private sealed class HereRouteSummary
