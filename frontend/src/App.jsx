@@ -7,10 +7,20 @@ export default function App() {
   const mapInstance = useRef(null);
   const markerGroupRef = useRef(null);
   const polygonGroupRef = useRef(null);
-  const [address, setAddress] = useState("האשל 2, קיסריה");
+  const uiRef = useRef(null);
+  const clickHandlerRef = useRef(null);
+  const [address, setAddress] = useState("");
   const [city, setCity] = useState("קיסריה");
   const [status, setStatus] = useState("Ready");
+  const [badgeText, setBadgeText] = useState("");
   const [showPolygon, setShowPolygon] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
+  const [isSuggesting, setIsSuggesting] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [noResults, setNoResults] = useState(false);
+  const debounceRef = useRef(null);
+  const bubbleTimerRef = useRef(null);
+  const [activeIndex, setActiveIndex] = useState(-1);
 
   useEffect(() => {
     let disposed = false;
@@ -42,7 +52,7 @@ export default function App() {
           new window.H.mapevents.MapEvents(map)
         );
       }
-      window.H.ui?.UI.createDefault(map, defaultLayers);
+      uiRef.current = window.H.ui?.UI.createDefault(map, defaultLayers) || null;
 
       mapInstance.current = map;
       markerGroupRef.current = new window.H.map.Group();
@@ -50,11 +60,77 @@ export default function App() {
       polygonGroupRef.current = new window.H.map.Group();
       map.addObject(polygonGroupRef.current);
 
+      clickHandlerRef.current = async (evt) => {
+        const pointer = evt.currentPointer;
+        const coord = map.screenToGeo(pointer.viewportX, pointer.viewportY);
+        if (!coord) {
+          return;
+        }
+
+        setStatus("Reverse geocoding...");
+        try {
+          const response = await fetch(`${apiBase}/locations/reverse-geocode`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              coordinate: { latitude: coord.lat, longitude: coord.lng }
+            })
+          });
+          const payload = await response.json();
+          if (!payload.success) {
+            setStatus(payload.message || payload.errorCode || "Reverse geocode failed.");
+            return;
+          }
+
+          const result = payload.data.geocode;
+          const validation = payload.data.validation;
+          setAddress(result.formattedAddress || "");
+          setCity(result.city || "");
+          setBadgeText(result.formattedAddress || "");
+
+          markerGroupRef.current?.removeAll();
+          const point = { lat: result.latitude, lng: result.longitude };
+          const marker = new window.H.map.Marker(point);
+          markerGroupRef.current?.addObject(marker);
+
+          if (uiRef.current) {
+            const bubble = new window.H.ui.InfoBubble(point, {
+              content: `<div style="font-size:12px">${result.formattedAddress}</div>`
+            });
+            uiRef.current.getBubbles().forEach((existing) => uiRef.current.removeBubble(existing));
+            uiRef.current.addBubble(bubble);
+
+            if (bubbleTimerRef.current) {
+              clearTimeout(bubbleTimerRef.current);
+            }
+            bubbleTimerRef.current = setTimeout(() => {
+              uiRef.current?.removeBubble(bubble);
+            }, 3500);
+          }
+
+          if (validation?.isInside) {
+            setStatus(`OK: ${result.formattedAddress}`);
+          } else {
+            setStatus(
+              validation?.reason
+                ? `Outside service area: ${validation.reason}`
+                : "Outside service area."
+            );
+          }
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : "Reverse geocode failed.");
+        }
+      };
+      map.addEventListener("tap", clickHandlerRef.current);
+
       const resize = () => map.getViewPort().resize();
       window.addEventListener("resize", resize);
 
       cleanup = () => {
         window.removeEventListener("resize", resize);
+        if (clickHandlerRef.current) {
+          map.removeEventListener("tap", clickHandlerRef.current);
+        }
         behavior?.dispose();
         map.dispose();
       };
@@ -88,15 +164,18 @@ export default function App() {
     };
   }, []);
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
+  const handleSubmit = async (event, overrides = null) => {
+    event?.preventDefault?.();
+    const nextAddress = overrides?.address ?? address;
+    const nextCity = overrides?.city ?? city;
     setStatus("Geocoding...");
+    setShowSuggestions(false);
 
     try {
       const response = await fetch(`${apiBase}/locations/geocode`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address, city })
+        body: JSON.stringify({ address: nextAddress, city: nextCity })
       });
       const payload = await response.json();
 
@@ -128,8 +207,132 @@ export default function App() {
       markerGroupRef.current?.removeAll();
       const marker = new window.H.map.Marker(point);
       markerGroupRef.current?.addObject(marker);
+
+      if (uiRef.current) {
+        const bubble = new window.H.ui.InfoBubble(point, {
+          content: `<div style="font-size:12px">${formattedAddress}</div>`
+        });
+        uiRef.current.getBubbles().forEach((existing) => uiRef.current.removeBubble(existing));
+        uiRef.current.addBubble(bubble);
+
+        if (bubbleTimerRef.current) {
+          clearTimeout(bubbleTimerRef.current);
+        }
+        bubbleTimerRef.current = setTimeout(() => {
+          uiRef.current?.removeBubble(bubble);
+        }, 3500);
+      }
+
+      setBadgeText(formattedAddress);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Request failed.");
+    }
+  };
+
+  const getMapBias = () => {
+    if (!mapInstance.current) {
+      return { latitude: 32.505, longitude: 34.905 };
+    }
+    const center = mapInstance.current.getCenter();
+    return { latitude: center.lat, longitude: center.lng };
+  };
+
+  const fetchSuggestions = async (query) => {
+    if (!query || query.trim().length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      setActiveIndex(-1);
+      setNoResults(false);
+      return;
+    }
+
+    setIsSuggesting(true);
+    try {
+      const bias = getMapBias();
+      const response = await fetch(`${apiBase}/locations/autosuggest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query,
+          at: bias,
+          limit: 6
+        })
+      });
+      const payload = await response.json();
+      if (!payload.success) {
+        setSuggestions([]);
+        setShowSuggestions(false);
+        setActiveIndex(-1);
+        setNoResults(false);
+        setStatus(payload.message || payload.errorCode || "Autosuggest failed.");
+        return;
+      }
+
+      const items = payload.data.items || [];
+      setSuggestions(items);
+      setShowSuggestions(items.length > 0);
+      setNoResults(items.length === 0);
+      setActiveIndex(-1);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Autosuggest failed.");
+    } finally {
+      setIsSuggesting(false);
+    }
+  };
+
+  const onAddressChange = (value) => {
+    setAddress(value);
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+    debounceRef.current = setTimeout(() => {
+      fetchSuggestions(value);
+    }, 350);
+  };
+
+  const sanitizeCity = (value) => value.replace(/[0-9]/g, "").trim();
+
+  const handleSuggestionSelect = (item) => {
+    const label = item.addressLabel || item.title || "";
+    const nextCity = item.city
+      ? sanitizeCity(item.city)
+      : sanitizeCity(
+          item.addressLabel?.split(",")?.[1]?.trim() ||
+            item.title?.split(",")?.[1]?.trim() ||
+            ""
+        );
+    setAddress(label);
+    if (nextCity) {
+      setCity(nextCity);
+    }
+    setShowSuggestions(false);
+    setSuggestions([]);
+    setNoResults(false);
+    setActiveIndex(-1);
+    handleSubmit(null, { address: label, city: nextCity || city });
+  };
+
+  const onAddressKeyDown = (event) => {
+    if (!showSuggestions || suggestions.length === 0) {
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveIndex((prev) => (prev + 1) % suggestions.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      if (activeIndex >= 0) {
+        handleSuggestionSelect(suggestions[activeIndex]);
+      } else if (suggestions.length > 0) {
+        handleSuggestionSelect(suggestions[0]);
+      }
+    } else if (event.key === "Escape") {
+      setShowSuggestions(false);
+      setActiveIndex(-1);
     }
   };
 
@@ -199,7 +402,7 @@ export default function App() {
       <header className="header">
         <div>
           <p className="eyebrow">Location Demo</p>
-          <h1>HERE Geocoding QA</h1>
+          <h1>HERE Geocoding</h1>
           <p className="subtitle">
             Validate addresses through your backend and visualize the result on
             a HERE map.
@@ -212,11 +415,40 @@ export default function App() {
         <form className="card" onSubmit={handleSubmit}>
           <label>
             Address
-            <input
-              value={address}
-              onChange={(event) => setAddress(event.target.value)}
-              placeholder="Street, City"
-            />
+            <div className="input-wrap">
+              <input
+                value={address}
+                onChange={(event) => onAddressChange(event.target.value)}
+                placeholder="Street, City"
+                onKeyDown={onAddressKeyDown}
+                onFocus={() => {
+                  if (suggestions.length > 0) setShowSuggestions(true);
+                }}
+                onBlur={() => {
+                  setTimeout(() => setShowSuggestions(false), 150);
+                }}
+              />
+              {isSuggesting && <span className="spinner" />}
+            </div>
+            {showSuggestions && suggestions.length > 0 && (
+              <ul className="suggestions">
+                {suggestions.map((item, index) => (
+                  <li
+                    key={item.id || item.title}
+                    className={index === activeIndex ? "active" : ""}
+                    onMouseDown={() => handleSuggestionSelect(item)}
+                  >
+                    <span className="suggestion-title">{item.title}</span>
+                    {item.addressLabel && (
+                      <span className="suggestion-sub">{item.addressLabel}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {noResults && !isSuggesting && (
+              <div className="no-results">No suggestions found.</div>
+            )}
           </label>
           <label>
             City (for match validation)
@@ -226,13 +458,30 @@ export default function App() {
               placeholder="City"
             />
           </label>
-          <button type="submit">Geocode + Validate</button>
           <button type="button" onClick={togglePolygon}>
             {showPolygon ? "Hide Service Area" : "Show Service Area"}
           </button>
         </form>
 
         <section className="map-card">
+          {badgeText && (
+            <button
+              type="button"
+              className="address-badge"
+              title="Copy address"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(badgeText);
+                  setStatus("Address copied.");
+                } catch {
+                  setStatus("Failed to copy address.");
+                }
+              }}
+            >
+              {badgeText}
+            </button>
+          )}
+          <div className="map-hint">Click map to reverse‑geocode</div>
           <div ref={mapRef} className="map" />
         </section>
       </main>

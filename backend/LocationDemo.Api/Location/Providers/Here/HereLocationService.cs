@@ -73,6 +73,90 @@ public sealed class HereLocationService : ILocationService
         };
     }
 
+    public async Task<AutosuggestResponse> AutosuggestAsync(AutosuggestRequest request, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.Query))
+        {
+            throw new ArgumentException("Query is required.", nameof(request.Query));
+        }
+
+        EnsureConfigured();
+
+        var parameters = new List<string>
+        {
+            $"q={Uri.EscapeDataString(request.Query)}",
+            $"apiKey={_options.ApiKey}"
+        };
+
+        if (request.At is not null)
+        {
+            parameters.Add($"at={request.At.Latitude},{request.At.Longitude}");
+        }
+        else if (!string.IsNullOrWhiteSpace(request.In))
+        {
+            parameters.Add($"in={Uri.EscapeDataString(request.In)}");
+        }
+
+        if (request.Limit is not null && request.Limit > 0)
+        {
+            parameters.Add($"limit={request.Limit}");
+        }
+
+        var url = $"https://autosuggest.search.hereapi.com/v1/autosuggest?{string.Join("&", parameters)}";
+        var response = await _httpClient.GetFromJsonAsync<HereAutosuggestResponse>(url, cancellationToken);
+
+        var items = response?.Items?.Select(item => new AutosuggestItem
+            {
+                Title = item.Title ?? string.Empty,
+                Id = item.Id,
+                ResultType = item.ResultType,
+                AddressLabel = item.Address?.Label,
+                City = item.Address?.City,
+                Position = item.Position is null ? null : new Coordinate(item.Position.Lat, item.Position.Lng)
+            })
+            .ToArray() ?? Array.Empty<AutosuggestItem>();
+
+        return new AutosuggestResponse
+        {
+            Items = items
+        };
+    }
+
+    public async Task<GeocodeResult> ReverseGeocodeAsync(Coordinate coordinate, CancellationToken cancellationToken = default)
+    {
+        EnsureConfigured();
+
+        var at = $"{coordinate.Latitude},{coordinate.Longitude}";
+        var url = $"https://revgeocode.search.hereapi.com/v1/revgeocode?at={at}&lang=en-US&apiKey={_options.ApiKey}";
+
+        var response = await _httpClient.GetFromJsonAsync<HereGeocodeResponse>(url, cancellationToken);
+        var first = response?.Items?.FirstOrDefault();
+        if (first is null || first.Position is null)
+        {
+            return new GeocodeResult
+            {
+                FormattedAddress = string.Empty,
+                Latitude = coordinate.Latitude,
+                Longitude = coordinate.Longitude,
+                City = null,
+                Confidence = 0,
+                MatchLevel = null,
+                HouseNumber = null
+            };
+        }
+
+        return new GeocodeResult
+        {
+            FormattedAddress = first.Address?.Label ?? string.Empty,
+            Latitude = first.Position.Lat,
+            Longitude = first.Position.Lng,
+            City = first.Address?.City,
+            Confidence = first.Scoring?.QueryScore ?? 0,
+            MatchLevel = first.ResultType,
+            HouseNumber = first.Address?.HouseNumber
+        };
+    }
+
     private void EnsureConfigured()
     {
         if (string.IsNullOrWhiteSpace(_options.ApiKey))
@@ -154,5 +238,29 @@ public sealed class HereLocationService : ILocationService
 
         [JsonPropertyName("duration")]
         public double Duration { get; init; }
+    }
+
+    private sealed class HereAutosuggestResponse
+    {
+        [JsonPropertyName("items")]
+        public List<HereAutosuggestItem>? Items { get; init; }
+    }
+
+    private sealed class HereAutosuggestItem
+    {
+        [JsonPropertyName("title")]
+        public string? Title { get; init; }
+
+        [JsonPropertyName("id")]
+        public string? Id { get; init; }
+
+        [JsonPropertyName("resultType")]
+        public string? ResultType { get; init; }
+
+        [JsonPropertyName("address")]
+        public HereAddress? Address { get; init; }
+
+        [JsonPropertyName("position")]
+        public HerePosition? Position { get; init; }
     }
 }

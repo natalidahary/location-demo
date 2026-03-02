@@ -186,6 +186,70 @@ app.MapPost("/locations/route", async (
 })
 .WithName("Route");
 
+app.MapPost("/locations/autosuggest", async (AutosuggestRequest request, ILocationService service, CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Query))
+    {
+        return Results.BadRequest(ApiResponse<string>.Fail(
+            "InvalidQuery",
+            "Query is required."));
+    }
+
+    if (request.At is null && string.IsNullOrWhiteSpace(request.In))
+    {
+        return Results.BadRequest(ApiResponse<string>.Fail(
+            "InvalidBias",
+            "Either 'at' or 'in' must be provided for autosuggest."));
+    }
+
+    var result = await service.AutosuggestAsync(request, ct);
+    return Results.Ok(ApiResponse<AutosuggestResponse>.Ok(result));
+})
+.WithName("Autosuggest");
+
+app.MapPost("/locations/reverse-geocode", async (
+    ReverseGeocodeRequest request,
+    ILocationService service,
+    ISpatialValidator validator,
+    IOptions<SpatialValidationOptions> options,
+    CancellationToken ct) =>
+{
+    var coordinate = request.Coordinate;
+    var result = await service.ReverseGeocodeAsync(coordinate, ct);
+
+    var areaId = options.Value.DefaultAreaId;
+    if (string.IsNullOrWhiteSpace(areaId))
+    {
+        return Results.Json(
+            ApiResponse<string>.Fail(
+                "SpatialValidationNotConfigured",
+                "Spatial validation is not configured. Set SpatialValidation:DefaultAreaId."),
+            statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    var validation = await validator.IsInsideAsync(areaId, new Coordinate(result.Latitude, result.Longitude), ct);
+    var response = new GeocodeValidationResult
+    {
+        Geocode = result,
+        Validation = validation
+    };
+
+    if (!validation.IsInside)
+    {
+        return Results.Conflict(ApiResponse<GeocodeValidationResult>.Fail(
+            "OutOfServiceArea",
+            $"The address is outside the {validation.AreaId} responsibility zone.",
+            response,
+            new Dictionary<string, object>
+            {
+                ["areaId"] = validation.AreaId
+            }));
+    }
+
+    return Results.Ok(ApiResponse<GeocodeValidationResult>.Ok(response));
+})
+.WithName("ReverseGeocode");
+
 app.MapPost("/locations/validate", async (SpatialValidationRequest request, ISpatialValidator validator, CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(request.AreaId))
