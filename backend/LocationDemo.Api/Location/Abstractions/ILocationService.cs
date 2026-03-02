@@ -1,6 +1,11 @@
-namespace LocationDemo.Api.Location.Abstractions;
+using LocationDemo.Api.Location.Models.Autosuggest;
+using LocationDemo.Api.Location.Models.Geocode;
+using LocationDemo.Api.Location.Models.Isoline;
+using LocationDemo.Api.Location.Models.PoiSearch;
+using LocationDemo.Api.Location.Models.Route;
+using LocationDemo.Api.Location.Models.Shared;
 
-using LocationDemo.Api.Location.Models;
+namespace LocationDemo.Api.Location.Abstractions;
 
 public interface ILocationService
 {

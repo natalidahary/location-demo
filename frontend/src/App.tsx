@@ -1,32 +1,55 @@
 import { useEffect, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
+
+declare global {
+  interface Window {
+    H: any;
+  }
+}
+
+type Coord = { lat: number; lng: number };
+type Position = { latitude: number; longitude: number };
+type AutosuggestItem = {
+  id?: string;
+  title?: string;
+  addressLabel?: string;
+  city?: string;
+};
+type PoiItem = {
+  id?: string;
+  title?: string;
+  category?: string;
+  distanceMeters?: number;
+  position?: Position;
+};
 
 const apiBase = import.meta.env.VITE_API_BASE || "http://localhost:5206";
 
 export default function App() {
-  const mapRef = useRef(null);
-  const mapInstance = useRef(null);
-  const markerGroupRef = useRef(null);
-  const polygonGroupRef = useRef(null);
-  const isolineGroupRef = useRef(null);
-  const poiGroupRef = useRef(null);
-  const routeGroupRef = useRef(null);
-  const uiRef = useRef(null);
-  const clickHandlerRef = useRef(null);
-  const selectedPointRef = useRef(null);
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const mapInstance = useRef<any>(null);
+  const markerGroupRef = useRef<any>(null);
+  const polygonGroupRef = useRef<any>(null);
+  const isolineGroupRef = useRef<any>(null);
+  const poiGroupRef = useRef<any>(null);
+  const routeGroupRef = useRef<any>(null);
+  const uiRef = useRef<any>(null);
+  const clickHandlerRef = useRef<((evt: any) => void) | null>(null);
+  const selectedPointRef = useRef<Coord | null>(null);
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("קיסריה");
   const [status, setStatus] = useState("Ready");
   const [badgeText, setBadgeText] = useState("");
   const [showPolygon, setShowPolygon] = useState(false);
-  const [suggestions, setSuggestions] = useState([]);
+  const [suggestions, setSuggestions] = useState<AutosuggestItem[]>([]);
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [noResults, setNoResults] = useState(false);
-  const debounceRef = useRef(null);
-  const bubbleTimerRef = useRef(null);
+  const debounceRef = useRef<number | null>(null);
+  const bubbleTimerRef = useRef<number | null>(null);
   const [activeIndex, setActiveIndex] = useState(-1);
-  const poiIconRef = useRef(null);
-  const selectedIconRef = useRef(null);
+  const poiIconRef = useRef<any>(null);
+  const selectedIconRef = useRef<any>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -43,7 +66,7 @@ export default function App() {
       const defaultLayers = platform.createDefaultLayers();
 
       const map = new window.H.Map(
-        mapRef.current,
+        mapRef.current!,
         defaultLayers.vector.normal.map,
         {
           zoom: 12,
@@ -52,7 +75,7 @@ export default function App() {
         }
       );
 
-      let behavior;
+      let behavior: any;
       if (window.H.mapevents) {
         behavior = new window.H.mapevents.Behavior(
           new window.H.mapevents.MapEvents(map)
@@ -61,7 +84,7 @@ export default function App() {
       uiRef.current = window.H.ui?.UI.createDefault(map, defaultLayers) || null;
 
       mapInstance.current = map;
-      const pinSvg = (fill, stroke) =>
+      const pinSvg = (fill: string, stroke: string) =>
         `<svg xmlns="http://www.w3.org/2000/svg" width="30" height="36" viewBox="0 0 30 36">
           <path d="M15 0C8.4 0 3 5.2 3 11.7c0 7.9 10 22.2 11.3 23.9.4.6 1.2.6 1.6 0C17 33.9 27 19.6 27 11.7 27 5.2 21.6 0 15 0z" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>
           <circle cx="15" cy="12" r="4.5" fill="#fff"/>
@@ -96,7 +119,7 @@ export default function App() {
               coordinate: { latitude: coord.lat, longitude: coord.lng }
             })
           });
-          const payload = await response.json();
+          const payload = (await response.json()) as any;
           if (!payload.success) {
             setStatus(payload.message || payload.errorCode || "Reverse geocode failed.");
             return;
@@ -120,13 +143,15 @@ export default function App() {
             const bubble = new window.H.ui.InfoBubble(point, {
               content: `<div style="font-size:12px">${result.formattedAddress}</div>`
             });
-            uiRef.current.getBubbles().forEach((existing) => uiRef.current.removeBubble(existing));
+            (uiRef.current.getBubbles() as any[]).forEach((existing) =>
+              uiRef.current.removeBubble(existing)
+            );
             uiRef.current.addBubble(bubble);
 
             if (bubbleTimerRef.current) {
-              clearTimeout(bubbleTimerRef.current);
+              window.clearTimeout(bubbleTimerRef.current);
             }
-            bubbleTimerRef.current = setTimeout(() => {
+            bubbleTimerRef.current = window.setTimeout(() => {
               uiRef.current?.removeBubble(bubble);
             }, 3500);
           }
@@ -171,23 +196,26 @@ export default function App() {
           setStatus("HERE Maps script not loaded.");
           return;
         }
-        setTimeout(tryInit, 100);
+        window.setTimeout(tryInit, 100);
         return;
       }
 
       initMap();
     };
 
-    const timer = setTimeout(tryInit, 0);
+    const timer = window.setTimeout(tryInit, 0);
 
     return () => {
       disposed = true;
-      clearTimeout(timer);
+      window.clearTimeout(timer);
       cleanup();
     };
   }, []);
 
-  const handleSubmit = async (event, overrides = null) => {
+  const handleSubmit = async (
+    event?: { preventDefault?: () => void } | null,
+    overrides: { address?: string; city?: string } | null = null
+  ) => {
     event?.preventDefault?.();
     const nextAddress = overrides?.address ?? address;
     const nextCity = overrides?.city ?? city;
@@ -200,7 +228,7 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ address: nextAddress, city: nextCity })
       });
-      const payload = await response.json();
+      const payload = (await response.json()) as any;
 
       if (!payload.success) {
         setStatus(payload.message || payload.errorCode || "Geocode failed.");
@@ -238,13 +266,15 @@ export default function App() {
         const bubble = new window.H.ui.InfoBubble(point, {
           content: `<div style="font-size:12px">${formattedAddress}</div>`
         });
-        uiRef.current.getBubbles().forEach((existing) => uiRef.current.removeBubble(existing));
+        (uiRef.current.getBubbles() as any[]).forEach((existing) =>
+          uiRef.current.removeBubble(existing)
+        );
         uiRef.current.addBubble(bubble);
 
         if (bubbleTimerRef.current) {
-          clearTimeout(bubbleTimerRef.current);
+          window.clearTimeout(bubbleTimerRef.current);
         }
-        bubbleTimerRef.current = setTimeout(() => {
+        bubbleTimerRef.current = window.setTimeout(() => {
           uiRef.current?.removeBubble(bubble);
         }, 3500);
       }
@@ -263,7 +293,7 @@ export default function App() {
     return { latitude: center.lat, longitude: center.lng };
   };
 
-  const fetchSuggestions = async (query) => {
+  const fetchSuggestions = async (query: string) => {
     if (!query || query.trim().length < 2) {
       setSuggestions([]);
       setShowSuggestions(false);
@@ -284,7 +314,7 @@ export default function App() {
           limit: 6
         })
       });
-      const payload = await response.json();
+      const payload = (await response.json()) as any;
       if (!payload.success) {
         setSuggestions([]);
         setShowSuggestions(false);
@@ -306,19 +336,19 @@ export default function App() {
     }
   };
 
-  const onAddressChange = (value) => {
+  const onAddressChange = (value: string) => {
     setAddress(value);
     if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
+      window.clearTimeout(debounceRef.current);
     }
-    debounceRef.current = setTimeout(() => {
+    debounceRef.current = window.setTimeout(() => {
       fetchSuggestions(value);
     }, 350);
   };
 
-  const sanitizeCity = (value) => value.replace(/[0-9]/g, "").trim();
+  const sanitizeCity = (value: string) => value.replace(/[0-9]/g, "").trim();
 
-  const handleSuggestionSelect = (item) => {
+  const handleSuggestionSelect = (item: AutosuggestItem) => {
     const label = item.addressLabel || item.title || "";
     const nextCity = item.city
       ? sanitizeCity(item.city)
@@ -338,7 +368,7 @@ export default function App() {
     handleSubmit(null, { address: label, city: nextCity || city });
   };
 
-  const onAddressKeyDown = (event) => {
+  const onAddressKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (!showSuggestions || suggestions.length === 0) {
       return;
     }
@@ -383,7 +413,7 @@ export default function App() {
         return;
       }
 
-      const geojson = await response.json();
+      const geojson = (await response.json()) as any;
       const feature = geojson.features?.[0];
       const geometry = feature?.geometry;
       if (!geometry) {
@@ -402,10 +432,10 @@ export default function App() {
         return;
       }
 
-      polygons.forEach((polygonCoords) => {
+      polygons.forEach((polygonCoords: any) => {
         const ring = polygonCoords[0];
         const lineString = new window.H.geo.LineString();
-        ring.forEach(([lng, lat]) => {
+        ring.forEach(([lng, lat]: [number, number]) => {
           lineString.pushLatLngAlt(lat, lng, 0);
         });
 
@@ -456,7 +486,7 @@ export default function App() {
           routingMode: "fast"
         })
       });
-      const payload = await response.json();
+      const payload = (await response.json()) as any;
       if (!payload.success) {
         setStatus(payload.message || payload.errorCode || "Isoline failed.");
         return;
@@ -464,8 +494,8 @@ export default function App() {
 
       isolineGroupRef.current?.removeAll();
       const isolines = payload.data.isolines || [];
-      isolines.forEach((isoline) => {
-        isoline.polygons?.forEach((polygon) => {
+      isolines.forEach((isoline: any) => {
+        isoline.polygons?.forEach((polygon: any) => {
           if (!polygon.outer) return;
           const lineString = window.H.geo.LineString.fromFlexiblePolyline(
             polygon.outer
@@ -496,7 +526,7 @@ export default function App() {
 
   const [poiQuery, setPoiQuery] = useState("coffee");
   const [poiVisible, setPoiVisible] = useState(false);
-  const [poiResults, setPoiResults] = useState([]);
+  const [poiResults, setPoiResults] = useState<PoiItem[]>([]);
 
   const togglePoi = async () => {
     if (!mapInstance.current) {
@@ -529,14 +559,14 @@ export default function App() {
           limit: 10
         })
       });
-      const payload = await response.json();
+      const payload = (await response.json()) as any;
       if (!payload.success) {
         setStatus(payload.message || payload.errorCode || "POI search failed.");
         return;
       }
 
       poiGroupRef.current?.removeAll();
-      const items = payload.data.items || [];
+      const items = (payload.data.items || []) as PoiItem[];
       items.forEach((item) => {
         if (!item.position) return;
         const point = { lat: item.position.latitude, lng: item.position.longitude };
@@ -561,7 +591,7 @@ export default function App() {
     }
   };
 
-  const drawRouteTo = async (destination) => {
+  const drawRouteTo = async (destination: Coord) => {
     if (!selectedPointRef.current) {
       setStatus("Select a location first.");
       return;
@@ -581,7 +611,7 @@ export default function App() {
           }
         })
       });
-      const payload = await response.json();
+      const payload = (await response.json()) as any;
       if (!payload.success) {
         setStatus(payload.message || payload.errorCode || "Route failed.");
         return;
@@ -640,7 +670,7 @@ export default function App() {
                   if (suggestions.length > 0) setShowSuggestions(true);
                 }}
                 onBlur={() => {
-                  setTimeout(() => setShowSuggestions(false), 150);
+                  window.setTimeout(() => setShowSuggestions(false), 150);
                 }}
               />
               {isSuggesting && <span className="spinner" />}
@@ -709,14 +739,14 @@ export default function App() {
                       const bubble = new window.H.ui.InfoBubble(point, {
                         content: `<div style="font-size:12px">${item.title}</div>`
                       });
-                      uiRef.current
-                        .getBubbles()
-                        .forEach((existing) => uiRef.current.removeBubble(existing));
+                      (uiRef.current.getBubbles() as any[]).forEach((existing) =>
+                        uiRef.current.removeBubble(existing)
+                      );
                       uiRef.current.addBubble(bubble);
                       if (bubbleTimerRef.current) {
-                        clearTimeout(bubbleTimerRef.current);
+                        window.clearTimeout(bubbleTimerRef.current);
                       }
-                      bubbleTimerRef.current = setTimeout(() => {
+                      bubbleTimerRef.current = window.setTimeout(() => {
                         uiRef.current?.removeBubble(bubble);
                       }, 3500);
                     }

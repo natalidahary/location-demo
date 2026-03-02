@@ -1,4 +1,6 @@
-namespace LocationDemo.Api.Location.Models;
+using LocationDemo.Api.Location.Models.Spatial;
+
+namespace LocationDemo.Api.Location.Models.Geocode;
 
 public sealed class GeocodeValidationResult
 {

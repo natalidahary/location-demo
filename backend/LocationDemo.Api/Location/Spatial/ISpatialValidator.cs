@@ -1,4 +1,5 @@
-using LocationDemo.Api.Location.Models;
+using LocationDemo.Api.Location.Models.Shared;
+using LocationDemo.Api.Location.Models.Spatial;
 
 namespace LocationDemo.Api.Location.Spatial;
 
