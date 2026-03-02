@@ -1,7 +1,11 @@
-using System.Net.Http.Json;
+using LocationDemo.Api.Location.Models.Autosuggest;
+using LocationDemo.Api.Location.Models.Geocode;
+using LocationDemo.Api.Location.Models.Isoline;
+using LocationDemo.Api.Location.Models.PoiSearch;
+using LocationDemo.Api.Location.Models.Route;
+using LocationDemo.Api.Location.Models.Shared;
 using System.Text.Json.Serialization;
 using LocationDemo.Api.Location.Abstractions;
-using LocationDemo.Api.Location.Models;
 using Microsoft.Extensions.Options;
 
 namespace LocationDemo.Api.Location.Providers.Here;
@@ -93,7 +97,8 @@ public sealed class HereLocationService : ILocationService
 
         if (request.At is not null)
         {
-            parameters.Add($"at={request.At.Latitude},{request.At.Longitude}");
+            var at = request.At;
+            parameters.Add($"at={at.Latitude},{at.Longitude}");
         }
         else if (!string.IsNullOrWhiteSpace(request.In))
         {
@@ -212,7 +217,8 @@ public sealed class HereLocationService : ILocationService
 
         if (request.At is not null)
         {
-            parameters.Add($"at={request.At.Latitude},{request.At.Longitude}");
+            var at = request.At;
+            parameters.Add($"at={at.Latitude},{at.Longitude}");
         }
         else if (!string.IsNullOrWhiteSpace(request.In))
         {

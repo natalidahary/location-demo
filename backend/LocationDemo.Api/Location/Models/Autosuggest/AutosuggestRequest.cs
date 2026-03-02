@@ -1,6 +1,8 @@
-namespace LocationDemo.Api.Location.Models;
+using LocationDemo.Api.Location.Models.Shared;
 
-public sealed class PoiSearchRequest
+namespace LocationDemo.Api.Location.Models.Autosuggest;
+
+public sealed class AutosuggestRequest
 {
     public string Query { get; init; } = string.Empty;
     public Coordinate? At { get; init; }

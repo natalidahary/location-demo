@@ -1,5 +1,6 @@
-namespace LocationDemo.Api.Location.Models;
+using LocationDemo.Api.Location.Models.Shared;
 
+namespace LocationDemo.Api.Location.Models.Spatial;
 public sealed class SpatialValidationRequest
 {
     public string AreaId { get; init; } = string.Empty;

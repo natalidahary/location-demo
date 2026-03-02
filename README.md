@@ -7,7 +7,7 @@ A full-stack geo system demonstrating how to build a production-style location v
 ## Stack
 
 - Backend: .NET 10 Web API
-- Frontend: React + Vite
+- Frontend: React + Vite + TypeScript
 - Map Rendering: HERE Maps JavaScript SDK
 - Spatial Engine: NetTopologySuite
 - Architecture Goal: Switch map providers (HERE ↔ Azure Maps) via DI without touching business logic
@@ -198,6 +198,8 @@ Open:
 ```
 http://localhost:5173
 ```
+
+Frontend source is in `frontend/src/*.tsx`.
 
 ---
 

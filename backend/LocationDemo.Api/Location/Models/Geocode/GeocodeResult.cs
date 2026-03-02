@@ -1,4 +1,4 @@
-namespace LocationDemo.Api.Location.Models;
+namespace LocationDemo.Api.Location.Models.Geocode;
 
 public sealed class GeocodeResult
 {

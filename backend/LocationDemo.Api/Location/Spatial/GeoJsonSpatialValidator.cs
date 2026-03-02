@@ -1,10 +1,9 @@
-using System.Collections.Concurrent;
-using LocationDemo.Api.Location.Models;
+using LocationDemo.Api.Location.Models.Spatial;
 using Microsoft.Extensions.Options;
 using NetTopologySuite.Features;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.IO;
-using ModelCoordinate = LocationDemo.Api.Location.Models.Coordinate;
+using ModelCoordinate = LocationDemo.Api.Location.Models.Shared.Coordinate;
 using NtsCoordinate = NetTopologySuite.Geometries.Coordinate;
 
 namespace LocationDemo.Api.Location.Spatial;

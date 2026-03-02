@@ -1,4 +1,4 @@
-namespace LocationDemo.Api.Location.Models;
+namespace LocationDemo.Api.Location.Models.Shared;
 
 public sealed class ApiResponse<T>
 {

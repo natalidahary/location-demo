@@ -1,4 +1,6 @@
-namespace LocationDemo.Api.Location.Models;
+using LocationDemo.Api.Location.Models.Shared;
+
+namespace LocationDemo.Api.Location.Models.Route;
 
 public sealed class RouteRequest
 {

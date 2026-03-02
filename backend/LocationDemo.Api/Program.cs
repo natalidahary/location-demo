@@ -1,6 +1,13 @@
 using LocationDemo.Api.Location.Abstractions;
+using LocationDemo.Api.Location.Models.Autosuggest;
+using LocationDemo.Api.Location.Models.Geocode;
+using LocationDemo.Api.Location.Models.Isoline;
+using LocationDemo.Api.Location.Models.PoiSearch;
+using LocationDemo.Api.Location.Models.ReverseGeocode;
+using LocationDemo.Api.Location.Models.Route;
+using LocationDemo.Api.Location.Models.Shared;
+using LocationDemo.Api.Location.Models.Spatial;
 using LocationDemo.Api.Location.Configuration;
-using LocationDemo.Api.Location.Models;
 using LocationDemo.Api.Location.Quality;
 using LocationDemo.Api.Location.Spatial;
 using Microsoft.Extensions.Options;
