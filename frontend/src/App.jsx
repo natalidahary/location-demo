@@ -8,6 +8,7 @@ export default function App() {
   const markerGroupRef = useRef(null);
   const polygonGroupRef = useRef(null);
   const isolineGroupRef = useRef(null);
+  const poiGroupRef = useRef(null);
   const uiRef = useRef(null);
   const clickHandlerRef = useRef(null);
   const selectedPointRef = useRef(null);
@@ -23,6 +24,8 @@ export default function App() {
   const debounceRef = useRef(null);
   const bubbleTimerRef = useRef(null);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const poiIconRef = useRef(null);
+  const selectedIconRef = useRef(null);
 
   useEffect(() => {
     let disposed = false;
@@ -57,12 +60,22 @@ export default function App() {
       uiRef.current = window.H.ui?.UI.createDefault(map, defaultLayers) || null;
 
       mapInstance.current = map;
+      const pinSvg = (fill, stroke) =>
+        `<svg xmlns="http://www.w3.org/2000/svg" width="30" height="36" viewBox="0 0 30 36">
+          <path d="M15 0C8.4 0 3 5.2 3 11.7c0 7.9 10 22.2 11.3 23.9.4.6 1.2.6 1.6 0C17 33.9 27 19.6 27 11.7 27 5.2 21.6 0 15 0z" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>
+          <circle cx="15" cy="12" r="4.5" fill="#fff"/>
+        </svg>`;
+      const iconOptions = { size: { w: 30, h: 36 }, anchor: { x: 15, y: 36 } };
+      poiIconRef.current = new window.H.map.Icon(pinSvg("#3f72ff", "#1f3ea8"), iconOptions);
+      selectedIconRef.current = new window.H.map.Icon(pinSvg("#06b6b3", "#0f4c4a"), iconOptions);
       markerGroupRef.current = new window.H.map.Group();
       map.addObject(markerGroupRef.current);
       polygonGroupRef.current = new window.H.map.Group();
       map.addObject(polygonGroupRef.current);
       isolineGroupRef.current = new window.H.map.Group();
       map.addObject(isolineGroupRef.current);
+      poiGroupRef.current = new window.H.map.Group();
+      map.addObject(poiGroupRef.current);
 
       clickHandlerRef.current = async (evt) => {
         const pointer = evt.currentPointer;
@@ -95,7 +108,9 @@ export default function App() {
           markerGroupRef.current?.removeAll();
           const point = { lat: result.latitude, lng: result.longitude };
           selectedPointRef.current = point;
-          const marker = new window.H.map.Marker(point);
+          const marker = new window.H.map.Marker(point, {
+            icon: selectedIconRef.current || undefined
+          });
           markerGroupRef.current?.addObject(marker);
 
           if (uiRef.current) {
@@ -211,7 +226,9 @@ export default function App() {
       });
 
       markerGroupRef.current?.removeAll();
-      const marker = new window.H.map.Marker(point);
+      const marker = new window.H.map.Marker(point, {
+        icon: selectedIconRef.current || undefined
+      });
       markerGroupRef.current?.addObject(marker);
 
       if (uiRef.current) {
@@ -474,6 +491,72 @@ export default function App() {
     }
   };
 
+  const [poiQuery, setPoiQuery] = useState("coffee");
+  const [poiVisible, setPoiVisible] = useState(false);
+  const [poiResults, setPoiResults] = useState([]);
+
+  const togglePoi = async () => {
+    if (!mapInstance.current) {
+      return;
+    }
+
+    const origin = selectedPointRef.current;
+    if (!origin) {
+      setStatus("Select a location first.");
+      return;
+    }
+
+    if (poiVisible) {
+      poiGroupRef.current?.removeAll();
+      setPoiVisible(false);
+      setPoiResults([]);
+      setStatus("POI cleared.");
+      return;
+    }
+
+    setStatus("Searching POIs...");
+    try {
+      const response = await fetch(`${apiBase}/locations/poi`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: poiQuery,
+          at: { latitude: origin.lat, longitude: origin.lng },
+          limit: 10
+        })
+      });
+      const payload = await response.json();
+      if (!payload.success) {
+        setStatus(payload.message || payload.errorCode || "POI search failed.");
+        return;
+      }
+
+      poiGroupRef.current?.removeAll();
+      const items = payload.data.items || [];
+      items.forEach((item) => {
+        if (!item.position) return;
+        const point = { lat: item.position.latitude, lng: item.position.longitude };
+        const marker = new window.H.map.Marker(point, {
+          icon: poiIconRef.current || undefined
+        });
+        marker.setData(item.title);
+        poiGroupRef.current?.addObject(marker);
+      });
+
+      if (poiGroupRef.current) {
+        mapInstance.current.getViewModel().setLookAtData({
+          bounds: poiGroupRef.current.getBoundingBox()
+        });
+      }
+
+      setPoiVisible(true);
+      setPoiResults(items);
+      setStatus(`POI found: ${items.length}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "POI search failed.");
+    }
+  };
+
   return (
     <div className="page">
       <header className="header">
@@ -541,6 +624,60 @@ export default function App() {
           <button type="button" onClick={toggleIsoline}>
             {isolineVisible ? "Hide Isoline" : "Show 10 min Isoline"}
           </button>
+          <label>
+            POI search
+            <input
+              value={poiQuery}
+              onChange={(event) => setPoiQuery(event.target.value)}
+              placeholder="coffee, pharmacy, bank"
+            />
+          </label>
+          <button type="button" onClick={togglePoi}>
+            {poiVisible ? "Hide POI" : "Show POI"}
+          </button>
+          {poiResults.length > 0 && (
+            <ul className="poi-list">
+              {poiResults.map((item) => (
+                <li
+                  key={item.id || item.title}
+                  onClick={() => {
+                    if (!item.position || !mapInstance.current) return;
+                    const point = {
+                      lat: item.position.latitude,
+                      lng: item.position.longitude
+                    };
+                    mapInstance.current.getViewModel().setLookAtData({
+                      position: point,
+                      zoom: 16
+                    });
+                    if (uiRef.current) {
+                      const bubble = new window.H.ui.InfoBubble(point, {
+                        content: `<div style="font-size:12px">${item.title}</div>`
+                      });
+                      uiRef.current
+                        .getBubbles()
+                        .forEach((existing) => uiRef.current.removeBubble(existing));
+                      uiRef.current.addBubble(bubble);
+                      if (bubbleTimerRef.current) {
+                        clearTimeout(bubbleTimerRef.current);
+                      }
+                      bubbleTimerRef.current = setTimeout(() => {
+                        uiRef.current?.removeBubble(bubble);
+                      }, 3500);
+                    }
+                  }}
+                >
+                  <span className="poi-title">{item.title}</span>
+                  {item.category && <span className="poi-meta">{item.category}</span>}
+                  {typeof item.distanceMeters === "number" && (
+                    <span className="poi-meta">
+                      {Math.round(item.distanceMeters)} m
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
         </form>
 
         <section className="map-card">

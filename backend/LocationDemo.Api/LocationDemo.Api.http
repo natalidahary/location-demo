@@ -60,3 +60,14 @@ Content-Type: application/json
   "transportMode": "car",
   "routingMode": "fast"
 }
+
+###
+
+POST {{LocationDemo.Api_HostAddress}}/locations/poi
+Content-Type: application/json
+
+{
+  "query": "coffee",
+  "at": { "latitude": 32.47737, "longitude": 34.94521 },
+  "limit": 5
+}

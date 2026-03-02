@@ -192,6 +192,55 @@ public sealed class HereLocationService : ILocationService
         };
     }
 
+    public async Task<PoiSearchResponse> SearchPoiAsync(PoiSearchRequest request, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.Query))
+        {
+            throw new ArgumentException("Query is required.", nameof(request.Query));
+        }
+
+        EnsureConfigured();
+
+        var parameters = new List<string>
+        {
+            $"q={Uri.EscapeDataString(request.Query)}",
+            $"apiKey={_options.ApiKey}"
+        };
+
+        if (request.At is not null)
+        {
+            parameters.Add($"at={request.At.Latitude},{request.At.Longitude}");
+        }
+        else if (!string.IsNullOrWhiteSpace(request.In))
+        {
+            parameters.Add($"in={Uri.EscapeDataString(request.In)}");
+        }
+
+        if (request.Limit is not null && request.Limit > 0)
+        {
+            parameters.Add($"limit={request.Limit}");
+        }
+
+        var url = $"https://discover.search.hereapi.com/v1/discover?{string.Join("&", parameters)}";
+        var response = await _httpClient.GetFromJsonAsync<HerePoiResponse>(url, cancellationToken);
+
+        var items = response?.Items?.Select(item => new PoiSearchItem
+            {
+                Title = item.Title ?? string.Empty,
+                Id = item.Id,
+                AddressLabel = item.Address?.Label,
+                Category = item.Categories?.FirstOrDefault()?.Name,
+                Position = item.Position is null ? null : new Coordinate(item.Position.Lat, item.Position.Lng),
+                DistanceMeters = item.Distance
+            })
+            .ToArray() ?? Array.Empty<PoiSearchItem>();
+
+        return new PoiSearchResponse
+        {
+            Items = items
+        };
+    }
+
     private void EnsureConfigured()
     {
         if (string.IsNullOrWhiteSpace(_options.ApiKey))
@@ -327,5 +376,38 @@ public sealed class HereLocationService : ILocationService
     {
         [JsonPropertyName("outer")]
         public string? Outer { get; init; }
+    }
+
+    private sealed class HerePoiResponse
+    {
+        [JsonPropertyName("items")]
+        public List<HerePoiItem>? Items { get; init; }
+    }
+
+    private sealed class HerePoiItem
+    {
+        [JsonPropertyName("title")]
+        public string? Title { get; init; }
+
+        [JsonPropertyName("id")]
+        public string? Id { get; init; }
+
+        [JsonPropertyName("address")]
+        public HereAddress? Address { get; init; }
+
+        [JsonPropertyName("categories")]
+        public List<HerePoiCategory>? Categories { get; init; }
+
+        [JsonPropertyName("position")]
+        public HerePosition? Position { get; init; }
+
+        [JsonPropertyName("distance")]
+        public double? Distance { get; init; }
+    }
+
+    private sealed class HerePoiCategory
+    {
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
     }
 }

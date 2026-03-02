@@ -9,4 +9,5 @@ public interface ILocationService
     Task<AutosuggestResponse> AutosuggestAsync(AutosuggestRequest request, CancellationToken cancellationToken = default);
     Task<GeocodeResult> ReverseGeocodeAsync(Coordinate coordinate, CancellationToken cancellationToken = default);
     Task<IsolineResponse> GetIsolineAsync(IsolineRequest request, CancellationToken cancellationToken = default);
+    Task<PoiSearchResponse> SearchPoiAsync(PoiSearchRequest request, CancellationToken cancellationToken = default);
 }

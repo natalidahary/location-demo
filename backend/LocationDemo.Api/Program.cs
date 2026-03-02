@@ -257,6 +257,27 @@ app.MapPost("/locations/isoline", async (IsolineRequest request, ILocationServic
 })
 .WithName("Isoline");
 
+app.MapPost("/locations/poi", async (PoiSearchRequest request, ILocationService service, CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Query))
+    {
+        return Results.BadRequest(ApiResponse<string>.Fail(
+            "InvalidQuery",
+            "Query is required."));
+    }
+
+    if (request.At is null && string.IsNullOrWhiteSpace(request.In))
+    {
+        return Results.BadRequest(ApiResponse<string>.Fail(
+            "InvalidBias",
+            "Either 'at' or 'in' must be provided for POI search."));
+    }
+
+    var result = await service.SearchPoiAsync(request, ct);
+    return Results.Ok(ApiResponse<PoiSearchResponse>.Ok(result));
+})
+.WithName("PoiSearch");
+
 app.MapPost("/locations/validate", async (SpatialValidationRequest request, ISpatialValidator validator, CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(request.AreaId))
