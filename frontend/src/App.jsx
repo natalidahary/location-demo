@@ -10,6 +10,7 @@ export default function App() {
   const isolineGroupRef = useRef(null);
   const uiRef = useRef(null);
   const clickHandlerRef = useRef(null);
+  const selectedPointRef = useRef(null);
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("קיסריה");
   const [status, setStatus] = useState("Ready");
@@ -93,6 +94,7 @@ export default function App() {
 
           markerGroupRef.current?.removeAll();
           const point = { lat: result.latitude, lng: result.longitude };
+          selectedPointRef.current = point;
           const marker = new window.H.map.Marker(point);
           markerGroupRef.current?.addObject(marker);
 
@@ -202,6 +204,7 @@ export default function App() {
       }
 
       const point = { lat, lng };
+      selectedPointRef.current = point;
       mapInstance.current.getViewModel().setLookAtData({
         position: point,
         zoom: 16
@@ -400,19 +403,33 @@ export default function App() {
     }
   };
 
-  const drawIsoline = async () => {
+  const [isolineVisible, setIsolineVisible] = useState(false);
+
+  const toggleIsoline = async () => {
     if (!mapInstance.current || !window.H?.geo?.LineString) {
       return;
     }
 
-    const center = mapInstance.current.getCenter();
+    const origin = selectedPointRef.current;
+    if (!origin) {
+      setStatus("Select a location first.");
+      return;
+    }
+
+    if (isolineVisible) {
+      isolineGroupRef.current?.removeAll();
+      setIsolineVisible(false);
+      setStatus("Isoline cleared.");
+      return;
+    }
+
     setStatus("Fetching isoline...");
     try {
       const response = await fetch(`${apiBase}/locations/isoline`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          origin: { latitude: center.lat, longitude: center.lng },
+          origin: { latitude: origin.lat, longitude: origin.lng },
           rangeType: "time",
           rangeValue: 600,
           transportMode: "car",
@@ -450,6 +467,7 @@ export default function App() {
         });
       }
 
+      setIsolineVisible(true);
       setStatus("Isoline ready.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Isoline failed.");
@@ -520,8 +538,8 @@ export default function App() {
           <button type="button" onClick={togglePolygon}>
             {showPolygon ? "Hide Service Area" : "Show Service Area"}
           </button>
-          <button type="button" onClick={drawIsoline}>
-            Show 10 min Isoline
+          <button type="button" onClick={toggleIsoline}>
+            {isolineVisible ? "Hide Isoline" : "Show 10 min Isoline"}
           </button>
         </form>
 
