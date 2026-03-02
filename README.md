@@ -2,6 +2,8 @@
 
 A full-stack geo system demonstrating how to build a production-style location validation engine using HERE Free-tier services while keeping the backend fully vendor-agnostic.
 
+<img width="700" height="400" alt="Screenshot 2026-03-02 at 23 21 36" src="https://github.com/user-attachments/assets/c4c20614-0d06-4087-8979-dea9aa0b6ae5" />
+
 ## Stack
 
 - Backend: .NET 10 Web API
