@@ -47,3 +47,16 @@ Content-Type: application/json
 {
   "coordinate": { "latitude": 32.47737, "longitude": 34.94521 }
 }
+
+###
+
+POST {{LocationDemo.Api_HostAddress}}/locations/isoline
+Content-Type: application/json
+
+{
+  "origin": { "latitude": 32.47737, "longitude": 34.94521 },
+  "rangeType": "time",
+  "rangeValue": 600,
+  "transportMode": "car",
+  "routingMode": "fast"
+}

@@ -250,6 +250,13 @@ app.MapPost("/locations/reverse-geocode", async (
 })
 .WithName("ReverseGeocode");
 
+app.MapPost("/locations/isoline", async (IsolineRequest request, ILocationService service, CancellationToken ct) =>
+{
+    var result = await service.GetIsolineAsync(request, ct);
+    return Results.Ok(ApiResponse<IsolineResponse>.Ok(result));
+})
+.WithName("Isoline");
+
 app.MapPost("/locations/validate", async (SpatialValidationRequest request, ISpatialValidator validator, CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(request.AreaId))

@@ -157,6 +157,41 @@ public sealed class HereLocationService : ILocationService
         };
     }
 
+    public async Task<IsolineResponse> GetIsolineAsync(IsolineRequest request, CancellationToken cancellationToken = default)
+    {
+        EnsureConfigured();
+
+        var origin = $"{request.Origin.Latitude},{request.Origin.Longitude}";
+        var url = $"https://isoline.router.hereapi.com/v8/isolines" +
+                  $"?origin={origin}" +
+                  $"&transportMode={Uri.EscapeDataString(request.TransportMode)}" +
+                  $"&routingMode={Uri.EscapeDataString(request.RoutingMode)}" +
+                  $"&range[type]={Uri.EscapeDataString(request.RangeType)}" +
+                  $"&range[values]={request.RangeValue}" +
+                  $"&apiKey={_options.ApiKey}";
+
+        var response = await _httpClient.GetFromJsonAsync<HereIsolineResponse>(url, cancellationToken);
+        var isolines = response?.Isolines?.Select(i => new Isoline
+            {
+                Range = new IsolineRange
+                {
+                    Type = i.Range?.Type ?? request.RangeType,
+                    Value = i.Range?.Value ?? request.RangeValue
+                },
+                Polygons = i.Polygons?.Select(p => new IsolinePolygon
+                    {
+                        Outer = p.Outer ?? string.Empty
+                    })
+                    .ToArray() ?? Array.Empty<IsolinePolygon>()
+            })
+            .ToArray() ?? Array.Empty<Isoline>();
+
+        return new IsolineResponse
+        {
+            Isolines = isolines
+        };
+    }
+
     private void EnsureConfigured()
     {
         if (string.IsNullOrWhiteSpace(_options.ApiKey))
@@ -262,5 +297,35 @@ public sealed class HereLocationService : ILocationService
 
         [JsonPropertyName("position")]
         public HerePosition? Position { get; init; }
+    }
+
+    private sealed class HereIsolineResponse
+    {
+        [JsonPropertyName("isolines")]
+        public List<HereIsoline>? Isolines { get; init; }
+    }
+
+    private sealed class HereIsoline
+    {
+        [JsonPropertyName("range")]
+        public HereIsolineRange? Range { get; init; }
+
+        [JsonPropertyName("polygons")]
+        public List<HereIsolinePolygon>? Polygons { get; init; }
+    }
+
+    private sealed class HereIsolineRange
+    {
+        [JsonPropertyName("type")]
+        public string? Type { get; init; }
+
+        [JsonPropertyName("value")]
+        public int? Value { get; init; }
+    }
+
+    private sealed class HereIsolinePolygon
+    {
+        [JsonPropertyName("outer")]
+        public string? Outer { get; init; }
     }
 }

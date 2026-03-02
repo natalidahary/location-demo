@@ -7,6 +7,7 @@ export default function App() {
   const mapInstance = useRef(null);
   const markerGroupRef = useRef(null);
   const polygonGroupRef = useRef(null);
+  const isolineGroupRef = useRef(null);
   const uiRef = useRef(null);
   const clickHandlerRef = useRef(null);
   const [address, setAddress] = useState("");
@@ -59,6 +60,8 @@ export default function App() {
       map.addObject(markerGroupRef.current);
       polygonGroupRef.current = new window.H.map.Group();
       map.addObject(polygonGroupRef.current);
+      isolineGroupRef.current = new window.H.map.Group();
+      map.addObject(isolineGroupRef.current);
 
       clickHandlerRef.current = async (evt) => {
         const pointer = evt.currentPointer;
@@ -397,6 +400,62 @@ export default function App() {
     }
   };
 
+  const drawIsoline = async () => {
+    if (!mapInstance.current || !window.H?.geo?.LineString) {
+      return;
+    }
+
+    const center = mapInstance.current.getCenter();
+    setStatus("Fetching isoline...");
+    try {
+      const response = await fetch(`${apiBase}/locations/isoline`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          origin: { latitude: center.lat, longitude: center.lng },
+          rangeType: "time",
+          rangeValue: 600,
+          transportMode: "car",
+          routingMode: "fast"
+        })
+      });
+      const payload = await response.json();
+      if (!payload.success) {
+        setStatus(payload.message || payload.errorCode || "Isoline failed.");
+        return;
+      }
+
+      isolineGroupRef.current?.removeAll();
+      const isolines = payload.data.isolines || [];
+      isolines.forEach((isoline) => {
+        isoline.polygons?.forEach((polygon) => {
+          if (!polygon.outer) return;
+          const lineString = window.H.geo.LineString.fromFlexiblePolyline(
+            polygon.outer
+          );
+          const shape = new window.H.map.Polygon(lineString, {
+            style: {
+              fillColor: "rgba(66, 135, 245, 0.2)",
+              strokeColor: "#4287f5",
+              lineWidth: 2
+            }
+          });
+          isolineGroupRef.current?.addObject(shape);
+        });
+      });
+
+      if (isolineGroupRef.current) {
+        mapInstance.current.getViewModel().setLookAtData({
+          bounds: isolineGroupRef.current.getBoundingBox()
+        });
+      }
+
+      setStatus("Isoline ready.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Isoline failed.");
+    }
+  };
+
   return (
     <div className="page">
       <header className="header">
@@ -460,6 +519,9 @@ export default function App() {
           </label>
           <button type="button" onClick={togglePolygon}>
             {showPolygon ? "Hide Service Area" : "Show Service Area"}
+          </button>
+          <button type="button" onClick={drawIsoline}>
+            Show 10 min Isoline
           </button>
         </form>
 
