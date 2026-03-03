@@ -28,8 +28,6 @@ export default function App() {
   const routeSourceRef = useRef<atlas.source.DataSource | null>(null);
   const selectedPointSourceRef = useRef<atlas.source.DataSource | null>(null);
   const poiSourceRef = useRef<atlas.source.DataSource | null>(null);
-  const circleSourceRef = useRef<atlas.source.DataSource | null>(null);
-  const circleShapeRef = useRef<atlas.Shape | null>(null);
   const poiLayerRef = useRef<atlas.layer.SymbolLayer | null>(null);
   const trafficLayerRef = useRef<atlas.layer.TileLayer | null>(null);
   const popupRef = useRef<atlas.Popup | null>(null);
@@ -50,7 +48,6 @@ export default function App() {
   const [poiQuery, setPoiQuery] = useState("coffee");
   const [poiVisible, setPoiVisible] = useState(false);
   const [poiResults, setPoiResults] = useState<PoiItem[]>([]);
-  const [trafficVisible, setTrafficVisible] = useState(false);
 
   const runReverseGeocode = async (lng: number, lat: number) => {
     setStatus(`Clicked: ${lat.toFixed(5)}, ${lng.toFixed(5)} · Reverse geocoding...`);
@@ -88,7 +85,6 @@ export default function App() {
 
       setSelectedMarker(point);
       showPopup(point, result.formattedAddress || "");
-      updateSelectionCircle(point);
 
       if (validation?.isInside) {
         setStatus(`OK: ${result.formattedAddress}`);
@@ -114,6 +110,7 @@ export default function App() {
       zoom: 12,
       renderWorldCopies: false,
       style: "road",
+      styleDefinitionsVersion: "2023-01-01",
       styleOverrides: {
         countryRegion: { borderVisible: false },
         buildingFootprint: { visible: false },
@@ -127,13 +124,14 @@ export default function App() {
         }
       },
       authOptions: {
-        authType: "subscriptionKey",
+        authType: atlas.AuthenticationType.subscriptionKey,
         subscriptionKey: import.meta.env.VITE_AZURE_MAPS_KEY
       }
     });
 
     map.events.add("ready", () => {
       mapInstance.current = map;
+      map.setTraffic({ flow: "relative", incidents: true });
 
       map.controls.add(
         new atlas.control.StyleControl({
@@ -146,10 +144,9 @@ export default function App() {
             "satellite",
             "satellite_road_labels"
           ],
-          layout: "list",
-          style: "light"
+          layout: "list"
         }),
-        { position: "top-right" }
+        { position: atlas.ControlPosition.TopRight }
       );
 
       map.controls.add(
@@ -158,10 +155,13 @@ export default function App() {
           new atlas.control.PitchControl(),
           new atlas.control.CompassControl(),
           new atlas.control.FullscreenControl(),
-          new atlas.control.ScaleControl()
+          new atlas.control.TrafficControl()
         ],
-        { position: "top-right" }
+        { position: atlas.ControlPosition.TopRight }
       );
+      map.controls.add(new atlas.control.TrafficLegendControl(), {
+        position: atlas.ControlPosition.BottomLeft
+      });
 
       polygonSourceRef.current = new atlas.source.DataSource();
       isolineSourceRef.current = new atlas.source.DataSource();
@@ -170,14 +170,12 @@ export default function App() {
       });
       selectedPointSourceRef.current = new atlas.source.DataSource();
       poiSourceRef.current = new atlas.source.DataSource();
-      circleSourceRef.current = new atlas.source.DataSource();
 
       map.sources.add(polygonSourceRef.current);
       map.sources.add(isolineSourceRef.current);
       map.sources.add(routeSourceRef.current);
       map.sources.add(selectedPointSourceRef.current);
       map.sources.add(poiSourceRef.current);
-      map.sources.add(circleSourceRef.current);
 
 
       const selectedPinSvg =
@@ -197,6 +195,29 @@ export default function App() {
         `<path d="M2 12l14-8v5h6v6h-6v5z" fill="#1f3ea8"/>` +
         `</svg>`;
 
+      const poiFoodSvg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 32 32">` +
+        `<path d="M16 2C10.5 2 6 6.5 6 12c0 7.4 8.7 16.7 9.4 17.5.3.3.6.5.6.5s.3-.2.6-.5C17.3 28.7 26 19.4 26 12 26 6.5 21.5 2 16 2z" fill="#8b5a2b" stroke="#5c3a1a" stroke-width="1.5"/>` +
+        `<circle cx="16" cy="12" r="4.5" fill="#fff"/>` +
+        `</svg>`;
+
+      const poiBankSvg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 32 32">` +
+        `<path d="M16 2C10.5 2 6 6.5 6 12c0 7.4 8.7 16.7 9.4 17.5.3.3.6.5.6.5s.3-.2.6-.5C17.3 28.7 26 19.4 26 12 26 6.5 21.5 2 16 2z" fill="#0ea5e9" stroke="#0369a1" stroke-width="1.5"/>` +
+        `<circle cx="16" cy="12" r="4.5" fill="#fff"/>` +
+        `</svg>`;
+
+      const poiHealthSvg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 32 32">` +
+        `<path d="M16 2C10.5 2 6 6.5 6 12c0 7.4 8.7 16.7 9.4 17.5.3.3.6.5.6.5s.3-.2.6-.5C17.3 28.7 26 19.4 26 12 26 6.5 21.5 2 16 2z" fill="#2563eb" stroke="#1e40af" stroke-width="1.5"/>` +
+        `<circle cx="16" cy="12" r="4.5" fill="#fff"/>` +
+        `</svg>`;
+      const poiShopSvg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 32 32">` +
+        `<path d="M16 2C10.5 2 6 6.5 6 12c0 7.4 8.7 16.7 9.4 17.5.3.3.6.5.6.5s.3-.2.6-.5C17.3 28.7 26 19.4 26 12 26 6.5 21.5 2 16 2z" fill="#7c3aed" stroke="#5b21b6" stroke-width="1.5"/>` +
+        `<circle cx="16" cy="12" r="4.5" fill="#fff"/>` +
+        `</svg>`;
+
       const areaHatchSvg =
         `<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 8 8">` +
         `<path d="M0 8 L8 0" stroke="rgba(226,109,61,0.35)" stroke-width="1"/>` +
@@ -205,6 +226,10 @@ export default function App() {
       Promise.all([
         map.imageSprite.add("selected-pin", selectedPinSvg),
         map.imageSprite.add("poi-pin", poiPinSvg),
+        map.imageSprite.add("poi-food", poiFoodSvg),
+        map.imageSprite.add("poi-bank", poiBankSvg),
+        map.imageSprite.add("poi-health", poiHealthSvg),
+        map.imageSprite.add("poi-shop", poiShopSvg),
         map.imageSprite.add("route-arrow", routeArrowSvg),
         map.imageSprite.add("area-hatch", areaHatchSvg)
       ]).then(() => {
@@ -223,7 +248,19 @@ export default function App() {
           undefined,
           {
             iconOptions: {
-              image: "poi-pin",
+              image: [
+                "match",
+                ["get", "categoryGroup"],
+                "food",
+                "poi-food",
+                "bank",
+                "poi-bank",
+                "health",
+                "poi-health",
+                "shop",
+                "poi-shop",
+                "poi-pin"
+              ],
               size: 0.9,
               anchor: "bottom",
               allowOverlap: true
@@ -284,19 +321,7 @@ export default function App() {
           })
         );
 
-        map.layers.add(
-          new atlas.layer.PolygonLayer(circleSourceRef.current!, undefined, {
-            fillColor: "rgba(255, 214, 0, 0.45)",
-            strokeColor: "#ffb300",
-            strokeWidth: 4
-          })
-        );
-        map.layers.add(
-          new atlas.layer.LineLayer(circleSourceRef.current!, undefined, {
-            strokeColor: "#ff8f00",
-            strokeWidth: 3
-          })
-        );
+
 
         const popup = new atlas.Popup({
           pixelOffset: [0, -22],
@@ -332,14 +357,6 @@ export default function App() {
         });
       });
 
-      trafficLayerRef.current = new atlas.layer.TileLayer({
-        tileUrl:
-          "https://{azMapsDomain}/traffic/flow/tile/png?api-version=1.0&style=relative&zoom={z}&x={x}&y={y}",
-        tileSize: 256,
-        opacity: 0.85,
-        visible: false
-      });
-      map.layers.add(trafficLayerRef.current, "labels");
 
       map.events.add("click", async (e: atlas.MapMouseEvent) => {
         const position = e.position;
@@ -393,24 +410,6 @@ export default function App() {
       new atlas.data.Point([point.lng, point.lat])
     );
     source.setShapes([feature]);
-    updateSelectionCircle(point);
-  };
-
-  const updateSelectionCircle = (point: Coord) => {
-    const source = circleSourceRef.current;
-    if (!source) return;
-    if (!circleShapeRef.current) {
-      circleShapeRef.current = new atlas.Shape(
-        new atlas.data.Feature(new atlas.data.Point([point.lng, point.lat]), {
-          subType: "Circle",
-          radius: 500
-        })
-      );
-      source.setShapes([circleShapeRef.current]);
-      return;
-    }
-    circleShapeRef.current.setCoordinates([point.lng, point.lat]);
-    source.setShapes([circleShapeRef.current]);
   };
 
   const showPopup = (point: Coord, text: string) => {
@@ -478,7 +477,6 @@ export default function App() {
       setSelectedMarker(point);
       showPopup(point, formattedAddress);
       setBadgeText(formattedAddress);
-      updateSelectionCircle(point);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Request failed.");
     }
@@ -681,6 +679,7 @@ export default function App() {
 
       isolineSourceRef.current.clear();
       const isolines = payload.data.isolines || [];
+      const positions: atlas.data.Position[] = [];
       isolines.forEach((isoline: any) => {
         isoline.polygons?.forEach((polygon: any) => {
           const coords = (polygon.coordinates || []).map((c: any) => [
@@ -690,12 +689,13 @@ export default function App() {
           if (coords.length === 0) return;
           const shape = new atlas.data.Polygon([coords]);
           isolineSourceRef.current?.add(shape);
+          coords.forEach((c: atlas.data.Position) => positions.push(c));
         });
       });
 
-      const bounds = isolineSourceRef.current.getBounds();
-      if (bounds) {
-        mapInstance.current.setCamera({ bounds });
+      if (positions.length > 0) {
+        const bounds = atlas.data.BoundingBox.fromPositions(positions);
+        mapInstance.current?.setCamera({ bounds });
       }
 
       setIsolineVisible(true);
@@ -740,15 +740,46 @@ export default function App() {
 
       const items = (payload.data.items || []) as PoiItem[];
       const positions: atlas.data.Position[] = [];
-      const poiFeatures: atlas.data.Feature[] = [];
+      const poiFeatures: atlas.data.Feature<atlas.data.Point, any>[] = [];
       items.forEach((item) => {
         if (!item.position) return;
         const point = { lat: item.position.latitude, lng: item.position.longitude };
+        const categoryText = `${item.category || ""} ${item.title || ""}`.toLowerCase();
+        let categoryGroup = "default";
+        if (
+          categoryText.includes("cafe") ||
+          categoryText.includes("coffee") ||
+          categoryText.includes("restaurant") ||
+          categoryText.includes("food") ||
+          categoryText.includes("קפה") ||
+          categoryText.includes("בית קפה")
+        ) {
+          categoryGroup = "food";
+        } else if (
+          categoryText.includes("bank") ||
+          categoryText.includes("atm") ||
+          categoryText.includes("finance") ||
+          categoryText.includes("בנק") ||
+          categoryText.includes("כספומט")
+        ) {
+          categoryGroup = "bank";
+        } else if (
+          categoryText.includes("pharmacy") ||
+          categoryText.includes("hospital") ||
+          categoryText.includes("clinic") ||
+          categoryText.includes("health") ||
+          categoryText.includes("רוקחות") ||
+          categoryText.includes("בית חולים") ||
+          categoryText.includes("מרפאה")
+        ) {
+          categoryGroup = "health";
+        }
         positions.push([point.lng, point.lat]);
         poiFeatures.push(
           new atlas.data.Feature(new atlas.data.Point([point.lng, point.lat]), {
             title: item.title || "POI",
             category: item.category || "POI",
+            categoryGroup,
             distanceMeters:
               typeof item.distanceMeters === "number"
                 ? Math.round(item.distanceMeters)
@@ -769,22 +800,6 @@ export default function App() {
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "POI search failed.");
     }
-  };
-
-  const toggleTraffic = () => {
-    const next = !trafficVisible;
-    setTrafficVisible(next);
-    trafficLayerRef.current?.setOptions({ visible: next });
-    if (next && mapInstance.current) {
-      const focus = selectedPointRef.current;
-      mapInstance.current.setCamera({
-        center: focus ? [focus.lng, focus.lat] : [34.9, 32.5],
-        zoom: 14,
-        type: "fly",
-        duration: 700
-      });
-    }
-    setStatus(next ? "Traffic flow on (zoomed in)." : "Traffic flow off.");
   };
 
   const drawRouteTo = async (destination: Coord) => {
@@ -902,9 +917,6 @@ export default function App() {
           </button>
           <button type="button" onClick={toggleIsoline}>
             {isolineVisible ? "Hide Isoline" : "Show 10 min Isoline"}
-          </button>
-          <button type="button" onClick={toggleTraffic}>
-            {trafficVisible ? "Hide Traffic" : "Show Traffic"}
           </button>
           <button type="button" onClick={flyToDemo}>
             Fly Camera
