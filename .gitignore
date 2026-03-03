@@ -15,6 +15,9 @@ obj/
 # VS Code
 .vscode/
 
+# Local app settings
+**/appsettings.Local.json
+
 # Frontend
 frontend/node_modules/
 frontend/dist/
