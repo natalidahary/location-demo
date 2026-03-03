@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_HERE_API_KEY: string;
+  readonly VITE_AZURE_MAPS_KEY: string;
   readonly VITE_API_BASE: string;
 }
 

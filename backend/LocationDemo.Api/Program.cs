@@ -264,7 +264,12 @@ app.MapPost("/locations/isoline", async (IsolineRequest request, ILocationServic
 })
 .WithName("Isoline");
 
-app.MapPost("/locations/poi", async (PoiSearchRequest request, ILocationService service, CancellationToken ct) =>
+app.MapPost("/locations/poi", async (
+    PoiSearchRequest request,
+    ILocationService service,
+    ISpatialValidator validator,
+    IOptions<SpatialValidationOptions> spatialOptions,
+    CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(request.Query))
     {
@@ -281,7 +286,36 @@ app.MapPost("/locations/poi", async (PoiSearchRequest request, ILocationService 
     }
 
     var result = await service.SearchPoiAsync(request, ct);
-    return Results.Ok(ApiResponse<PoiSearchResponse>.Ok(result));
+    var areaId = spatialOptions.Value.DefaultAreaId;
+    if (string.IsNullOrWhiteSpace(areaId))
+    {
+        return Results.Problem(
+            title: "Spatial validation is not configured.",
+            detail: "DefaultAreaId is missing in SpatialValidation options.",
+            statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    var filteredItems = new List<PoiSearchItem>();
+    foreach (var item in result.Items)
+    {
+        if (item.Position is null)
+        {
+            continue;
+        }
+
+        var inside = await validator.IsInsideAsync(areaId, item.Position, ct);
+        if (inside.IsInside)
+        {
+            filteredItems.Add(item);
+        }
+    }
+
+    var filtered = new PoiSearchResponse
+    {
+        Items = filteredItems.ToArray()
+    };
+
+    return Results.Ok(ApiResponse<PoiSearchResponse>.Ok(filtered));
 })
 .WithName("PoiSearch");
 

@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-
-declare global {
-  interface Window {
-    H: any;
-  }
-}
+import * as atlas from "azure-maps-control";
 
 type Coord = { lat: number; lng: number };
 type Position = { latitude: number; longitude: number };
@@ -27,14 +22,15 @@ const apiBase = import.meta.env.VITE_API_BASE || "http://localhost:5206";
 
 export default function App() {
   const mapRef = useRef<HTMLDivElement | null>(null);
-  const mapInstance = useRef<any>(null);
-  const markerGroupRef = useRef<any>(null);
-  const polygonGroupRef = useRef<any>(null);
-  const isolineGroupRef = useRef<any>(null);
-  const poiGroupRef = useRef<any>(null);
-  const routeGroupRef = useRef<any>(null);
-  const uiRef = useRef<any>(null);
-  const clickHandlerRef = useRef<((evt: any) => void) | null>(null);
+  const mapInstance = useRef<atlas.Map | null>(null);
+  const polygonSourceRef = useRef<atlas.source.DataSource | null>(null);
+  const isolineSourceRef = useRef<atlas.source.DataSource | null>(null);
+  const routeSourceRef = useRef<atlas.source.DataSource | null>(null);
+  const selectedPointSourceRef = useRef<atlas.source.DataSource | null>(null);
+  const poiSourceRef = useRef<atlas.source.DataSource | null>(null);
+  const poiLayerRef = useRef<atlas.layer.SymbolLayer | null>(null);
+  const trafficLayerRef = useRef<atlas.layer.TileLayer | null>(null);
+  const popupRef = useRef<atlas.Popup | null>(null);
   const selectedPointRef = useRef<Coord | null>(null);
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("קיסריה");
@@ -48,169 +44,356 @@ export default function App() {
   const debounceRef = useRef<number | null>(null);
   const bubbleTimerRef = useRef<number | null>(null);
   const [activeIndex, setActiveIndex] = useState(-1);
-  const poiIconRef = useRef<any>(null);
-  const selectedIconRef = useRef<any>(null);
+  const [isolineVisible, setIsolineVisible] = useState(false);
+  const [poiQuery, setPoiQuery] = useState("coffee");
+  const [poiVisible, setPoiVisible] = useState(false);
+  const [poiResults, setPoiResults] = useState<PoiItem[]>([]);
+  const [trafficVisible, setTrafficVisible] = useState(false);
 
-  useEffect(() => {
-    let disposed = false;
-    let cleanup = () => {};
+  const runReverseGeocode = async (lng: number, lat: number) => {
+    setStatus(`Clicked: ${lat.toFixed(5)}, ${lng.toFixed(5)} · Reverse geocoding...`);
+    try {
+      const response = await fetch(`${apiBase}/locations/reverse-geocode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          coordinate: { latitude: lat, longitude: lng }
+        })
+      });
+      let payload: any = null;
+      try {
+        payload = await response.json();
+      } catch {
+        payload = null;
+      }
 
-    const initMap = () => {
-      if (disposed) {
+      if (!response.ok && !payload?.data?.geocode) {
+        setStatus(payload?.message || payload?.errorCode || "Reverse geocode failed.");
         return;
       }
 
-      const platform = new window.H.service.Platform({
-        apikey: import.meta.env.VITE_HERE_API_KEY
-      });
-      const defaultLayers = platform.createDefaultLayers();
+      const result = payload?.data?.geocode;
+      const validation = payload?.data?.validation;
+      if (!result) {
+        setStatus(payload?.message || payload?.errorCode || "Reverse geocode failed.");
+        return;
+      }
+      const point = { lat: result.latitude, lng: result.longitude };
+      selectedPointRef.current = point;
+      setAddress(result.formattedAddress || "");
+      setCity(result.city || "");
+      setBadgeText(result.formattedAddress || "");
 
-      const map = new window.H.Map(
-        mapRef.current!,
-        defaultLayers.vector.normal.map,
-        {
-          zoom: 12,
-          center: { lat: 32.5, lng: 34.9 },
-          pixelRatio: window.devicePixelRatio || 1
-        }
-      );
+      setSelectedMarker(point);
+      showPopup(point, result.formattedAddress || "");
 
-      let behavior: any;
-      if (window.H.mapevents) {
-        behavior = new window.H.mapevents.Behavior(
-          new window.H.mapevents.MapEvents(map)
+      if (validation?.isInside) {
+        setStatus(`OK: ${result.formattedAddress}`);
+      } else if (!response.ok && (payload?.message || payload?.errorCode)) {
+        setStatus(payload.message || payload.errorCode);
+      } else {
+        setStatus(
+          validation?.reason
+            ? `Outside service area: ${validation.reason}`
+            : "Outside service area."
         );
       }
-      uiRef.current = window.H.ui?.UI.createDefault(map, defaultLayers) || null;
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Reverse geocode failed.");
+    }
+  };
 
-      mapInstance.current = map;
-      const pinSvg = (fill: string, stroke: string) =>
-        `<svg xmlns="http://www.w3.org/2000/svg" width="30" height="36" viewBox="0 0 30 36">
-          <path d="M15 0C8.4 0 3 5.2 3 11.7c0 7.9 10 22.2 11.3 23.9.4.6 1.2.6 1.6 0C17 33.9 27 19.6 27 11.7 27 5.2 21.6 0 15 0z" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>
-          <circle cx="15" cy="12" r="4.5" fill="#fff"/>
-        </svg>`;
-      const iconOptions = { size: { w: 30, h: 36 }, anchor: { x: 15, y: 36 } };
-      poiIconRef.current = new window.H.map.Icon(pinSvg("#3f72ff", "#1f3ea8"), iconOptions);
-      selectedIconRef.current = new window.H.map.Icon(pinSvg("#06b6b3", "#0f4c4a"), iconOptions);
-      markerGroupRef.current = new window.H.map.Group();
-      map.addObject(markerGroupRef.current);
-      polygonGroupRef.current = new window.H.map.Group();
-      map.addObject(polygonGroupRef.current);
-      isolineGroupRef.current = new window.H.map.Group();
-      map.addObject(isolineGroupRef.current);
-      poiGroupRef.current = new window.H.map.Group();
-      map.addObject(poiGroupRef.current);
-      routeGroupRef.current = new window.H.map.Group();
-      map.addObject(routeGroupRef.current);
+  useEffect(() => {
+    if (!mapRef.current) return;
 
-      clickHandlerRef.current = async (evt) => {
-        const pointer = evt.currentPointer;
-        const coord = map.screenToGeo(pointer.viewportX, pointer.viewportY);
-        if (!coord) {
-          return;
+    const map = new atlas.Map(mapRef.current, {
+      center: [34.9, 32.5],
+      zoom: 12,
+      renderWorldCopies: false,
+      style: "road",
+      styleOverrides: {
+        countryRegion: { borderVisible: false },
+        buildingFootprint: { visible: false },
+        roadDetails: { visible: false }
+      },
+      serviceOptions: {
+        transformRequest: (url: string, resourceType: string) => {
+          // Example hook point for proxies or custom headers.
+          // Return url unchanged by default.
+          return { url };
         }
+      },
+      authOptions: {
+        authType: "subscriptionKey",
+        subscriptionKey: import.meta.env.VITE_AZURE_MAPS_KEY
+      }
+    });
 
-        setStatus("Reverse geocoding...");
-        try {
-          const response = await fetch(`${apiBase}/locations/reverse-geocode`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              coordinate: { latitude: coord.lat, longitude: coord.lng }
-            })
-          });
-          const payload = (await response.json()) as any;
-          if (!payload.success) {
-            setStatus(payload.message || payload.errorCode || "Reverse geocode failed.");
+    map.events.add("ready", () => {
+      mapInstance.current = map;
+
+      map.controls.add(
+        new atlas.control.StyleControl({
+          mapStyles: [
+            "road",
+            "grayscale_light",
+            "grayscale_dark",
+            "night",
+            "road_shaded_relief",
+            "satellite",
+            "satellite_road_labels"
+          ],
+          layout: "list",
+          style: "light"
+        }),
+        { position: "top-right" }
+      );
+
+      map.controls.add(
+        [
+          new atlas.control.ZoomControl(),
+          new atlas.control.PitchControl(),
+          new atlas.control.CompassControl(),
+          new atlas.control.FullscreenControl(),
+          new atlas.control.ScaleControl()
+        ],
+        { position: "top-right" }
+      );
+
+      polygonSourceRef.current = new atlas.source.DataSource();
+      isolineSourceRef.current = new atlas.source.DataSource();
+      routeSourceRef.current = new atlas.source.DataSource(undefined, {
+        lineMetrics: true
+      });
+      selectedPointSourceRef.current = new atlas.source.DataSource();
+      poiSourceRef.current = new atlas.source.DataSource();
+
+      map.sources.add(polygonSourceRef.current);
+      map.sources.add(isolineSourceRef.current);
+      map.sources.add(routeSourceRef.current);
+      map.sources.add(selectedPointSourceRef.current);
+      map.sources.add(poiSourceRef.current);
+
+
+      const selectedPinSvg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">` +
+        `<path d="M16 2C10.5 2 6 6.5 6 12c0 7.4 8.7 16.7 9.4 17.5.3.3.6.5.6.5s.3-.2.6-.5C17.3 28.7 26 19.4 26 12 26 6.5 21.5 2 16 2z" fill="#06b6b3" stroke="#0f4c4a" stroke-width="1.5"/>` +
+        `<circle cx="16" cy="12" r="4.5" fill="#fff"/>` +
+        `</svg>`;
+
+      const poiPinSvg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 32 32">` +
+        `<path d="M16 2C10.5 2 6 6.5 6 12c0 7.4 8.7 16.7 9.4 17.5.3.3.6.5.6.5s.3-.2.6-.5C17.3 28.7 26 19.4 26 12 26 6.5 21.5 2 16 2z" fill="#3f72ff" stroke="#1f3ea8" stroke-width="1.5"/>` +
+        `<circle cx="16" cy="12" r="4.5" fill="#fff"/>` +
+        `</svg>`;
+
+      const routeArrowSvg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">` +
+        `<path d="M2 12l14-8v5h6v6h-6v5z" fill="#1f3ea8"/>` +
+        `</svg>`;
+
+      Promise.all([
+        map.imageSprite.add("selected-pin", selectedPinSvg),
+        map.imageSprite.add("poi-pin", poiPinSvg),
+        map.imageSprite.add("route-arrow", routeArrowSvg)
+      ]).then(() => {
+        map.layers.add(
+          new atlas.layer.SymbolLayer(selectedPointSourceRef.current!, undefined, {
+            iconOptions: {
+              image: "selected-pin",
+              size: 1,
+              anchor: "bottom"
+            }
+          })
+        );
+
+        poiLayerRef.current = new atlas.layer.SymbolLayer(
+          poiSourceRef.current!,
+          undefined,
+          {
+            iconOptions: {
+              image: "poi-pin",
+              size: 0.9,
+              anchor: "bottom",
+              allowOverlap: true
+            }
+          }
+        );
+        map.layers.add(poiLayerRef.current);
+
+        map.layers.add(
+          new atlas.layer.SymbolLayer(routeSourceRef.current!, undefined, {
+            placement: "line",
+            lineSpacing: 120,
+            iconOptions: {
+              image: "route-arrow",
+              size: 0.6,
+              allowOverlap: true,
+              anchor: "center",
+              rotationAlignment: "map"
+            }
+          })
+        );
+
+        const popup = new atlas.Popup({
+          pixelOffset: [0, -22],
+          closeButton: false
+        });
+        popupRef.current = popup;
+
+        map.events.add("mousemove", poiLayerRef.current, (e: any) => {
+          const shape = e.shapes?.[0];
+          if (!shape) {
             return;
           }
-
-          const result = payload.data.geocode;
-          const validation = payload.data.validation;
-          setAddress(result.formattedAddress || "");
-          setCity(result.city || "");
-          setBadgeText(result.formattedAddress || "");
-
-          markerGroupRef.current?.removeAll();
-          const point = { lat: result.latitude, lng: result.longitude };
-          selectedPointRef.current = point;
-          const marker = new window.H.map.Marker(point, {
-            icon: selectedIconRef.current || undefined
-          });
-          markerGroupRef.current?.addObject(marker);
-
-          if (uiRef.current) {
-            const bubble = new window.H.ui.InfoBubble(point, {
-              content: `<div style="font-size:12px">${result.formattedAddress}</div>`
-            });
-            (uiRef.current.getBubbles() as any[]).forEach((existing) =>
-              uiRef.current.removeBubble(existing)
-            );
-            uiRef.current.addBubble(bubble);
-
-            if (bubbleTimerRef.current) {
-              window.clearTimeout(bubbleTimerRef.current);
+          const properties = shape.getProperties?.() || {};
+          const content = atlas.PopupTemplate.applyTemplate(properties, {
+            content: [
+              "<strong>{title}</strong>",
+              "{category}",
+              "Distance: {distanceMeters} m"
+            ],
+            numberFormat: {
+              maximumFractionDigits: 0
             }
-            bubbleTimerRef.current = window.setTimeout(() => {
-              uiRef.current?.removeBubble(bubble);
-            }, 3500);
-          }
+          });
+          popup.setOptions({
+            content,
+            position: shape.getCoordinates()
+          });
+          popup.open(map);
+        });
 
-          if (validation?.isInside) {
-            setStatus(`OK: ${result.formattedAddress}`);
-          } else {
-            setStatus(
-              validation?.reason
-                ? `Outside service area: ${validation.reason}`
-                : "Outside service area."
-            );
-          }
-        } catch (error) {
-          setStatus(error instanceof Error ? error.message : "Reverse geocode failed.");
-        }
-      };
-      map.addEventListener("tap", clickHandlerRef.current);
+        map.events.add("mouseleave", poiLayerRef.current, () => {
+          popup.close();
+        });
+      });
 
-      const resize = () => map.getViewPort().resize();
-      window.addEventListener("resize", resize);
+      map.layers.add(
+        new atlas.layer.PolygonLayer(polygonSourceRef.current, undefined, {
+          fillColor: "rgba(226, 109, 61, 0.18)",
+          strokeColor: "#e26d3d",
+          strokeWidth: 2
+        })
+      );
 
-      cleanup = () => {
-        window.removeEventListener("resize", resize);
-        if (clickHandlerRef.current) {
-          map.removeEventListener("tap", clickHandlerRef.current);
-        }
-        behavior?.dispose();
-        map.dispose();
-      };
-    };
+      map.layers.add(
+        new atlas.layer.PolygonLayer(isolineSourceRef.current, undefined, {
+          fillColor: "rgba(66, 135, 245, 0.2)",
+          strokeColor: "#4287f5",
+          strokeWidth: 2
+        })
+      );
 
-    let attempts = 0;
-    const tryInit = () => {
-      if (disposed) {
-        return;
-      }
+      map.layers.add(
+        new atlas.layer.LineLayer(routeSourceRef.current, undefined, {
+          strokeColor: "#d7263d",
+          strokeWidth: 8,
+          strokeOpacity: 0.9,
+          lineCap: "round",
+          lineJoin: "round",
+          strokeGradient: [
+            "interpolate",
+            ["linear"],
+            ["line-progress"],
+            0,
+            "#2dd4bf",
+            0.5,
+            "#3f72ff",
+            1,
+            "#d7263d"
+          ]
+        })
+      );
 
-      if (!window.H || !window.H.service || !window.H.Map) {
-        attempts += 1;
-        if (attempts > 50) {
-          setStatus("HERE Maps script not loaded.");
-          return;
-        }
-        window.setTimeout(tryInit, 100);
-        return;
-      }
+      trafficLayerRef.current = new atlas.layer.TileLayer({
+        tileUrl:
+          "https://{azMapsDomain}/traffic/flow/tile/png?api-version=1.0&style=relative&zoom={z}&x={x}&y={y}",
+        tileSize: 256,
+        opacity: 0.85,
+        visible: false
+      });
+      map.layers.add(trafficLayerRef.current, "labels");
 
-      initMap();
-    };
-
-    const timer = window.setTimeout(tryInit, 0);
+      map.events.add("click", async (e: atlas.MapMouseEvent) => {
+        const position = e.position;
+        if (!position) return;
+        const [lng, lat] = position;
+        await runReverseGeocode(lng, lat);
+      });
+    });
 
     return () => {
-      disposed = true;
-      window.clearTimeout(timer);
-      cleanup();
+      map.dispose();
     };
   }, []);
+
+  const flyToDemo = () => {
+    if (!mapInstance.current) return;
+    const point = selectedPointRef.current;
+    if (!point) {
+      setStatus("Select a location first.");
+      return;
+    }
+    mapInstance.current.setCamera({
+      center: [point.lng, point.lat],
+      zoom: 15,
+      type: "fly",
+      duration: 1000
+    });
+  };
+
+  const fitDemoBounds = () => {
+    if (!mapInstance.current) return;
+    const point = selectedPointRef.current;
+    if (!point) {
+      setStatus("Select a location first.");
+      return;
+    }
+    const bounds = atlas.data.BoundingBox.fromPositions([
+      [point.lng - 0.03, point.lat - 0.02],
+      [point.lng + 0.03, point.lat + 0.02]
+    ]);
+    mapInstance.current.setCamera({
+      bounds,
+      padding: 30
+    });
+  };
+
+  const setSelectedMarker = (point: Coord) => {
+    const source = selectedPointSourceRef.current;
+    if (!source) return;
+    const feature = new atlas.data.Feature(
+      new atlas.data.Point([point.lng, point.lat])
+    );
+    source.setShapes([feature]);
+  };
+
+  const showPopup = (point: Coord, text: string) => {
+    if (!mapInstance.current) return;
+    if (popupRef.current) {
+      popupRef.current.close();
+    }
+    popupRef.current = new atlas.Popup({
+      position: [point.lng, point.lat],
+      content: `<div style="font-size:12px">${text}</div>`
+    });
+    popupRef.current.open(mapInstance.current);
+    if (bubbleTimerRef.current) {
+      window.clearTimeout(bubbleTimerRef.current);
+    }
+    bubbleTimerRef.current = window.setTimeout(() => {
+      popupRef.current?.close();
+    }, 3500);
+  };
+
+  const centerMap = (point: Coord, zoom?: number) => {
+    if (!mapInstance.current) return;
+    mapInstance.current.setCamera({
+      center: [point.lng, point.lat],
+      zoom: zoom ?? mapInstance.current.getCamera().zoom
+    });
+  };
 
   const handleSubmit = async (
     event?: { preventDefault?: () => void } | null,
@@ -238,10 +421,6 @@ export default function App() {
       const { latitude, longitude, formattedAddress } = payload.data.geocode;
       setStatus(`OK: ${formattedAddress}`);
 
-      if (!mapInstance.current) {
-        return;
-      }
-
       const lat = Number(latitude);
       const lng = Number(longitude);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -251,34 +430,9 @@ export default function App() {
 
       const point = { lat, lng };
       selectedPointRef.current = point;
-      mapInstance.current.getViewModel().setLookAtData({
-        position: point,
-        zoom: 16
-      });
-
-      markerGroupRef.current?.removeAll();
-      const marker = new window.H.map.Marker(point, {
-        icon: selectedIconRef.current || undefined
-      });
-      markerGroupRef.current?.addObject(marker);
-
-      if (uiRef.current) {
-        const bubble = new window.H.ui.InfoBubble(point, {
-          content: `<div style="font-size:12px">${formattedAddress}</div>`
-        });
-        (uiRef.current.getBubbles() as any[]).forEach((existing) =>
-          uiRef.current.removeBubble(existing)
-        );
-        uiRef.current.addBubble(bubble);
-
-        if (bubbleTimerRef.current) {
-          window.clearTimeout(bubbleTimerRef.current);
-        }
-        bubbleTimerRef.current = window.setTimeout(() => {
-          uiRef.current?.removeBubble(bubble);
-        }, 3500);
-      }
-
+      centerMap(point, 16);
+      setSelectedMarker(point);
+      showPopup(point, formattedAddress);
       setBadgeText(formattedAddress);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Request failed.");
@@ -289,8 +443,8 @@ export default function App() {
     if (!mapInstance.current) {
       return { latitude: 32.505, longitude: 34.905 };
     }
-    const center = mapInstance.current.getCenter();
-    return { latitude: center.lat, longitude: center.lng };
+    const center = mapInstance.current.getCamera().center as atlas.data.Position;
+    return { latitude: center[1], longitude: center[0] };
   };
 
   const fetchSuggestions = async (query: string) => {
@@ -396,11 +550,11 @@ export default function App() {
     const next = !showPolygon;
     setShowPolygon(next);
 
-    if (!polygonGroupRef.current) {
+    if (!polygonSourceRef.current) {
       return;
     }
 
-    polygonGroupRef.current.removeAll();
+    polygonSourceRef.current.clear();
 
     if (!next) {
       return;
@@ -434,29 +588,17 @@ export default function App() {
 
       polygons.forEach((polygonCoords: any) => {
         const ring = polygonCoords[0];
-        const lineString = new window.H.geo.LineString();
-        ring.forEach(([lng, lat]: [number, number]) => {
-          lineString.pushLatLngAlt(lat, lng, 0);
-        });
-
-        const polygon = new window.H.map.Polygon(lineString, {
-          style: {
-            fillColor: "rgba(226, 109, 61, 0.18)",
-            strokeColor: "#e26d3d",
-            lineWidth: 2
-          }
-        });
-        polygonGroupRef.current?.addObject(polygon);
+        const coords = ring.map(([lng, lat]: [number, number]) => [lng, lat]);
+        const polygon = new atlas.data.Polygon([coords]);
+        polygonSourceRef.current?.add(polygon);
       });
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Polygon load failed.");
     }
   };
 
-  const [isolineVisible, setIsolineVisible] = useState(false);
-
   const toggleIsoline = async () => {
-    if (!mapInstance.current || !window.H?.geo?.LineString) {
+    if (!mapInstance.current || !isolineSourceRef.current) {
       return;
     }
 
@@ -467,7 +609,7 @@ export default function App() {
     }
 
     if (isolineVisible) {
-      isolineGroupRef.current?.removeAll();
+      isolineSourceRef.current.clear();
       setIsolineVisible(false);
       setStatus("Isoline cleared.");
       return;
@@ -492,29 +634,23 @@ export default function App() {
         return;
       }
 
-      isolineGroupRef.current?.removeAll();
+      isolineSourceRef.current.clear();
       const isolines = payload.data.isolines || [];
       isolines.forEach((isoline: any) => {
         isoline.polygons?.forEach((polygon: any) => {
-          if (!polygon.outer) return;
-          const lineString = window.H.geo.LineString.fromFlexiblePolyline(
-            polygon.outer
-          );
-          const shape = new window.H.map.Polygon(lineString, {
-            style: {
-              fillColor: "rgba(66, 135, 245, 0.2)",
-              strokeColor: "#4287f5",
-              lineWidth: 2
-            }
-          });
-          isolineGroupRef.current?.addObject(shape);
+          const coords = (polygon.coordinates || []).map((c: any) => [
+            c.longitude,
+            c.latitude
+          ]);
+          if (coords.length === 0) return;
+          const shape = new atlas.data.Polygon([coords]);
+          isolineSourceRef.current?.add(shape);
         });
       });
 
-      if (isolineGroupRef.current) {
-        mapInstance.current.getViewModel().setLookAtData({
-          bounds: isolineGroupRef.current.getBoundingBox()
-        });
+      const bounds = isolineSourceRef.current.getBounds();
+      if (bounds) {
+        mapInstance.current.setCamera({ bounds });
       }
 
       setIsolineVisible(true);
@@ -524,15 +660,7 @@ export default function App() {
     }
   };
 
-  const [poiQuery, setPoiQuery] = useState("coffee");
-  const [poiVisible, setPoiVisible] = useState(false);
-  const [poiResults, setPoiResults] = useState<PoiItem[]>([]);
-
   const togglePoi = async () => {
-    if (!mapInstance.current) {
-      return;
-    }
-
     const origin = selectedPointRef.current;
     if (!origin) {
       setStatus("Select a location first.");
@@ -540,8 +668,8 @@ export default function App() {
     }
 
     if (poiVisible) {
-      poiGroupRef.current?.removeAll();
-      routeGroupRef.current?.removeAll();
+      poiSourceRef.current?.clear();
+      routeSourceRef.current?.clear();
       setPoiVisible(false);
       setPoiResults([]);
       setStatus("POI cleared.");
@@ -565,22 +693,29 @@ export default function App() {
         return;
       }
 
-      poiGroupRef.current?.removeAll();
       const items = (payload.data.items || []) as PoiItem[];
+      const positions: atlas.data.Position[] = [];
+      const poiFeatures: atlas.data.Feature[] = [];
       items.forEach((item) => {
         if (!item.position) return;
         const point = { lat: item.position.latitude, lng: item.position.longitude };
-        const marker = new window.H.map.Marker(point, {
-          icon: poiIconRef.current || undefined
-        });
-        marker.setData(item.title);
-        poiGroupRef.current?.addObject(marker);
+        positions.push([point.lng, point.lat]);
+        poiFeatures.push(
+          new atlas.data.Feature(new atlas.data.Point([point.lng, point.lat]), {
+            title: item.title || "POI",
+            category: item.category || "POI",
+            distanceMeters:
+              typeof item.distanceMeters === "number"
+                ? Math.round(item.distanceMeters)
+                : undefined
+          })
+        );
       });
+      poiSourceRef.current?.setShapes(poiFeatures);
 
-      if (poiGroupRef.current) {
-        mapInstance.current.getViewModel().setLookAtData({
-          bounds: poiGroupRef.current.getBoundingBox()
-        });
+      if (positions.length > 0 && mapInstance.current) {
+        const bounds = atlas.data.BoundingBox.fromPositions(positions);
+        mapInstance.current.setCamera({ bounds });
       }
 
       setPoiVisible(true);
@@ -589,6 +724,22 @@ export default function App() {
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "POI search failed.");
     }
+  };
+
+  const toggleTraffic = () => {
+    const next = !trafficVisible;
+    setTrafficVisible(next);
+    trafficLayerRef.current?.setOptions({ visible: next });
+    if (next && mapInstance.current) {
+      const focus = selectedPointRef.current;
+      mapInstance.current.setCamera({
+        center: focus ? [focus.lng, focus.lat] : [34.9, 32.5],
+        zoom: 14,
+        type: "fly",
+        duration: 700
+      });
+    }
+    setStatus(next ? "Traffic flow on (zoomed in)." : "Traffic flow off.");
   };
 
   const drawRouteTo = async (destination: Coord) => {
@@ -618,21 +769,19 @@ export default function App() {
       }
 
       const data = payload.data;
-      const polyline = data.polyline;
-      if (!polyline || !window.H?.geo?.LineString) {
-        setStatus("Route polyline missing.");
+      const path = data.path || [];
+      if (!routeSourceRef.current || path.length === 0) {
+        setStatus("Route path missing.");
         return;
       }
 
-      routeGroupRef.current?.removeAll();
-      const lineString = window.H.geo.LineString.fromFlexiblePolyline(polyline);
-      const routeLine = new window.H.map.Polyline(lineString, {
-        style: { strokeColor: "#1f3ea8", lineWidth: 5 }
-      });
-      routeGroupRef.current?.addObject(routeLine);
-      mapInstance.current?.getViewModel().setLookAtData({
-        bounds: routeLine.getBoundingBox()
-      });
+      const coords = path.map((p: any) => [p.longitude, p.latitude]);
+      const line = new atlas.data.LineString(coords);
+      routeSourceRef.current.clear();
+      routeSourceRef.current.add(line);
+
+      const bounds = atlas.data.BoundingBox.fromPositions(coords);
+      mapInstance.current?.setCamera({ bounds });
 
       const km = (data.distanceMeters / 1000).toFixed(1);
       const min = Math.round(data.durationSeconds / 60);
@@ -647,7 +796,7 @@ export default function App() {
       <header className="header">
         <div>
           <p className="eyebrow">Location Demo</p>
-          <h1>HERE Geo Platform</h1>
+          <h1>Azure Geo Platform</h1>
           <p className="subtitle">
             Provider-agnostic backend with geocoding, validation, routing,
             isolines, and POI search.
@@ -709,6 +858,15 @@ export default function App() {
           <button type="button" onClick={toggleIsoline}>
             {isolineVisible ? "Hide Isoline" : "Show 10 min Isoline"}
           </button>
+          <button type="button" onClick={toggleTraffic}>
+            {trafficVisible ? "Hide Traffic" : "Show Traffic"}
+          </button>
+          <button type="button" onClick={flyToDemo}>
+            Fly Camera
+          </button>
+          <button type="button" onClick={fitDemoBounds}>
+            Fit Bounds
+          </button>
           <label>
             POI search
             <input
@@ -731,26 +889,8 @@ export default function App() {
                       lat: item.position.latitude,
                       lng: item.position.longitude
                     };
-                    mapInstance.current.getViewModel().setLookAtData({
-                      position: point,
-                      zoom: 16
-                    });
-                    if (uiRef.current) {
-                      const bubble = new window.H.ui.InfoBubble(point, {
-                        content: `<div style="font-size:12px">${item.title}</div>`
-                      });
-                      (uiRef.current.getBubbles() as any[]).forEach((existing) =>
-                        uiRef.current.removeBubble(existing)
-                      );
-                      uiRef.current.addBubble(bubble);
-                      if (bubbleTimerRef.current) {
-                        window.clearTimeout(bubbleTimerRef.current);
-                      }
-                      bubbleTimerRef.current = window.setTimeout(() => {
-                        uiRef.current?.removeBubble(bubble);
-                      }, 3500);
-                    }
-
+                    centerMap(point, 16);
+                    showPopup(point, item.title || "");
                     drawRouteTo(point);
                   }}
                 >

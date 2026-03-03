@@ -233,6 +233,40 @@ button:hover {
   min-height: 480px;
 }
 
+.map,
+.map canvas,
+.map .atlas-map,
+.map .atlas-map canvas,
+.map .azure-map-canvas {
+  cursor: crosshair;
+}
+
+.atlas-style-control,
+.atlas-style-control * {
+  color: #111 !important;
+}
+
+.atlas-style-control,
+.atlas-style-control-panel,
+.atlas-control-panel,
+.atlas-control {
+  background: #fffaf2 !important;
+  border: 1px solid #e6d9c6 !important;
+}
+
+.atlas-style-control button,
+.atlas-style-control .atlas-style-control-title,
+.atlas-style-control .atlas-style-control-content,
+.atlas-style-control .atlas-style-control-panel,
+.atlas-style-control .atlas-control-panel,
+.atlas-style-control .atlas-style-control-list,
+.atlas-style-control .atlas-style-control-list-item,
+.atlas-style-control .atlas-style-control-list-item * {
+  color: #111 !important;
+}
+
+
+
 .address-badge {
   position: absolute;
   top: 16px;
@@ -262,7 +296,7 @@ button:hover {
 .map-hint {
   position: absolute;
   top: 16px;
-  right: 16px;
+  left: 16px;
   z-index: 4;
   background: rgba(255, 250, 242, 0.9);
   color: #5d564b;
@@ -272,6 +306,7 @@ button:hover {
   font-weight: 600;
   border: 1px solid #e2d8c8;
   box-shadow: 0 8px 16px rgba(31, 29, 26, 0.12);
+  pointer-events: none;
 }
 
 @media (max-width: 900px) {

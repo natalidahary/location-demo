@@ -1,3 +1,5 @@
+using LocationDemo.Api.Location.Models.Shared;
+
 namespace LocationDemo.Api.Location.Models.Isoline;
 
 public sealed class IsolineResponse
@@ -20,4 +22,5 @@ public sealed class IsolineRange
 public sealed class IsolinePolygon
 {
     public string Outer { get; init; } = string.Empty;
+    public IReadOnlyList<Coordinate> Coordinates { get; init; } = Array.Empty<Coordinate>();
 }
