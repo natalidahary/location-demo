@@ -28,6 +28,8 @@ export default function App() {
   const routeSourceRef = useRef<atlas.source.DataSource | null>(null);
   const selectedPointSourceRef = useRef<atlas.source.DataSource | null>(null);
   const poiSourceRef = useRef<atlas.source.DataSource | null>(null);
+  const circleSourceRef = useRef<atlas.source.DataSource | null>(null);
+  const circleShapeRef = useRef<atlas.Shape | null>(null);
   const poiLayerRef = useRef<atlas.layer.SymbolLayer | null>(null);
   const trafficLayerRef = useRef<atlas.layer.TileLayer | null>(null);
   const popupRef = useRef<atlas.Popup | null>(null);
@@ -86,6 +88,7 @@ export default function App() {
 
       setSelectedMarker(point);
       showPopup(point, result.formattedAddress || "");
+      updateSelectionCircle(point);
 
       if (validation?.isInside) {
         setStatus(`OK: ${result.formattedAddress}`);
@@ -167,12 +170,14 @@ export default function App() {
       });
       selectedPointSourceRef.current = new atlas.source.DataSource();
       poiSourceRef.current = new atlas.source.DataSource();
+      circleSourceRef.current = new atlas.source.DataSource();
 
       map.sources.add(polygonSourceRef.current);
       map.sources.add(isolineSourceRef.current);
       map.sources.add(routeSourceRef.current);
       map.sources.add(selectedPointSourceRef.current);
       map.sources.add(poiSourceRef.current);
+      map.sources.add(circleSourceRef.current);
 
 
       const selectedPinSvg =
@@ -192,10 +197,16 @@ export default function App() {
         `<path d="M2 12l14-8v5h6v6h-6v5z" fill="#1f3ea8"/>` +
         `</svg>`;
 
+      const areaHatchSvg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 8 8">` +
+        `<path d="M0 8 L8 0" stroke="rgba(226,109,61,0.35)" stroke-width="1"/>` +
+        `</svg>`;
+
       Promise.all([
         map.imageSprite.add("selected-pin", selectedPinSvg),
         map.imageSprite.add("poi-pin", poiPinSvg),
-        map.imageSprite.add("route-arrow", routeArrowSvg)
+        map.imageSprite.add("route-arrow", routeArrowSvg),
+        map.imageSprite.add("area-hatch", areaHatchSvg)
       ]).then(() => {
         map.layers.add(
           new atlas.layer.SymbolLayer(selectedPointSourceRef.current!, undefined, {
@@ -235,6 +246,58 @@ export default function App() {
           })
         );
 
+        map.layers.add(
+          new atlas.layer.PolygonLayer(polygonSourceRef.current!, undefined, {
+            fillColor: "rgba(226, 109, 61, 0.12)",
+            fillPattern: "area-hatch",
+            strokeColor: "#e26d3d",
+            strokeWidth: 2
+          })
+        );
+
+        map.layers.add(
+          new atlas.layer.PolygonLayer(isolineSourceRef.current!, undefined, {
+            fillColor: "rgba(66, 135, 245, 0.2)",
+            strokeColor: "#4287f5",
+            strokeWidth: 2
+          })
+        );
+
+        map.layers.add(
+          new atlas.layer.LineLayer(routeSourceRef.current!, undefined, {
+            strokeColor: "#d7263d",
+            strokeWidth: 12,
+            strokeOpacity: 0.9,
+            lineCap: "round",
+            lineJoin: "round",
+            strokeGradient: [
+              "interpolate",
+              ["linear"],
+              ["line-progress"],
+              0,
+              "#2dd4bf",
+              0.5,
+              "#3f72ff",
+              1,
+              "#d7263d"
+            ]
+          })
+        );
+
+        map.layers.add(
+          new atlas.layer.PolygonLayer(circleSourceRef.current!, undefined, {
+            fillColor: "rgba(255, 214, 0, 0.45)",
+            strokeColor: "#ffb300",
+            strokeWidth: 4
+          })
+        );
+        map.layers.add(
+          new atlas.layer.LineLayer(circleSourceRef.current!, undefined, {
+            strokeColor: "#ff8f00",
+            strokeWidth: 3
+          })
+        );
+
         const popup = new atlas.Popup({
           pixelOffset: [0, -22],
           closeButton: false
@@ -268,43 +331,6 @@ export default function App() {
           popup.close();
         });
       });
-
-      map.layers.add(
-        new atlas.layer.PolygonLayer(polygonSourceRef.current, undefined, {
-          fillColor: "rgba(226, 109, 61, 0.18)",
-          strokeColor: "#e26d3d",
-          strokeWidth: 2
-        })
-      );
-
-      map.layers.add(
-        new atlas.layer.PolygonLayer(isolineSourceRef.current, undefined, {
-          fillColor: "rgba(66, 135, 245, 0.2)",
-          strokeColor: "#4287f5",
-          strokeWidth: 2
-        })
-      );
-
-      map.layers.add(
-        new atlas.layer.LineLayer(routeSourceRef.current, undefined, {
-          strokeColor: "#d7263d",
-          strokeWidth: 8,
-          strokeOpacity: 0.9,
-          lineCap: "round",
-          lineJoin: "round",
-          strokeGradient: [
-            "interpolate",
-            ["linear"],
-            ["line-progress"],
-            0,
-            "#2dd4bf",
-            0.5,
-            "#3f72ff",
-            1,
-            "#d7263d"
-          ]
-        })
-      );
 
       trafficLayerRef.current = new atlas.layer.TileLayer({
         tileUrl:
@@ -367,6 +393,24 @@ export default function App() {
       new atlas.data.Point([point.lng, point.lat])
     );
     source.setShapes([feature]);
+    updateSelectionCircle(point);
+  };
+
+  const updateSelectionCircle = (point: Coord) => {
+    const source = circleSourceRef.current;
+    if (!source) return;
+    if (!circleShapeRef.current) {
+      circleShapeRef.current = new atlas.Shape(
+        new atlas.data.Feature(new atlas.data.Point([point.lng, point.lat]), {
+          subType: "Circle",
+          radius: 500
+        })
+      );
+      source.setShapes([circleShapeRef.current]);
+      return;
+    }
+    circleShapeRef.current.setCoordinates([point.lng, point.lat]);
+    source.setShapes([circleShapeRef.current]);
   };
 
   const showPopup = (point: Coord, text: string) => {
@@ -434,6 +478,7 @@ export default function App() {
       setSelectedMarker(point);
       showPopup(point, formattedAddress);
       setBadgeText(formattedAddress);
+      updateSelectionCircle(point);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Request failed.");
     }
