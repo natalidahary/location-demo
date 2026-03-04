@@ -14,6 +14,8 @@ using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+
 builder.Services.AddOpenApi();
 builder.Services.AddLocationServices(builder.Configuration);
 builder.Services.AddCors(options =>

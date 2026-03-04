@@ -19,6 +19,7 @@ type PoiItem = {
 };
 
 const apiBase = import.meta.env.VITE_API_BASE || "http://localhost:5206";
+const defaultAreaId = "caesarea";
 
 export default function App() {
   const mapRef = useRef<HTMLDivElement | null>(null);
@@ -27,6 +28,7 @@ export default function App() {
   const isolineSourceRef = useRef<atlas.source.DataSource | null>(null);
   const routeSourceRef = useRef<atlas.source.DataSource | null>(null);
   const selectedPointSourceRef = useRef<atlas.source.DataSource | null>(null);
+  const destinationPointSourceRef = useRef<atlas.source.DataSource | null>(null);
   const poiSourceRef = useRef<atlas.source.DataSource | null>(null);
   const poiLayerRef = useRef<atlas.layer.SymbolLayer | null>(null);
   const trafficLayerRef = useRef<atlas.layer.TileLayer | null>(null);
@@ -48,6 +50,13 @@ export default function App() {
   const [poiQuery, setPoiQuery] = useState("coffee");
   const [poiVisible, setPoiVisible] = useState(false);
   const [poiResults, setPoiResults] = useState<PoiItem[]>([]);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    coord: Coord;
+  } | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const runReverseGeocode = async (lng: number, lat: number) => {
     setStatus(`Clicked: ${lat.toFixed(5)}, ${lng.toFixed(5)} · Reverse geocoding...`);
@@ -169,54 +178,16 @@ export default function App() {
         lineMetrics: true
       });
       selectedPointSourceRef.current = new atlas.source.DataSource();
+      destinationPointSourceRef.current = new atlas.source.DataSource();
       poiSourceRef.current = new atlas.source.DataSource();
 
       map.sources.add(polygonSourceRef.current);
       map.sources.add(isolineSourceRef.current);
       map.sources.add(routeSourceRef.current);
       map.sources.add(selectedPointSourceRef.current);
+      map.sources.add(destinationPointSourceRef.current);
       map.sources.add(poiSourceRef.current);
 
-
-      const selectedPinSvg =
-        `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">` +
-        `<path d="M16 2C10.5 2 6 6.5 6 12c0 7.4 8.7 16.7 9.4 17.5.3.3.6.5.6.5s.3-.2.6-.5C17.3 28.7 26 19.4 26 12 26 6.5 21.5 2 16 2z" fill="#06b6b3" stroke="#0f4c4a" stroke-width="1.5"/>` +
-        `<circle cx="16" cy="12" r="4.5" fill="#fff"/>` +
-        `</svg>`;
-
-      const poiPinSvg =
-        `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 32 32">` +
-        `<path d="M16 2C10.5 2 6 6.5 6 12c0 7.4 8.7 16.7 9.4 17.5.3.3.6.5.6.5s.3-.2.6-.5C17.3 28.7 26 19.4 26 12 26 6.5 21.5 2 16 2z" fill="#3f72ff" stroke="#1f3ea8" stroke-width="1.5"/>` +
-        `<circle cx="16" cy="12" r="4.5" fill="#fff"/>` +
-        `</svg>`;
-
-      const routeArrowSvg =
-        `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">` +
-        `<path d="M2 12l14-8v5h6v6h-6v5z" fill="#1f3ea8"/>` +
-        `</svg>`;
-
-      const poiFoodSvg =
-        `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 32 32">` +
-        `<path d="M16 2C10.5 2 6 6.5 6 12c0 7.4 8.7 16.7 9.4 17.5.3.3.6.5.6.5s.3-.2.6-.5C17.3 28.7 26 19.4 26 12 26 6.5 21.5 2 16 2z" fill="#8b5a2b" stroke="#5c3a1a" stroke-width="1.5"/>` +
-        `<circle cx="16" cy="12" r="4.5" fill="#fff"/>` +
-        `</svg>`;
-
-      const poiBankSvg =
-        `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 32 32">` +
-        `<path d="M16 2C10.5 2 6 6.5 6 12c0 7.4 8.7 16.7 9.4 17.5.3.3.6.5.6.5s.3-.2.6-.5C17.3 28.7 26 19.4 26 12 26 6.5 21.5 2 16 2z" fill="#0ea5e9" stroke="#0369a1" stroke-width="1.5"/>` +
-        `<circle cx="16" cy="12" r="4.5" fill="#fff"/>` +
-        `</svg>`;
-
-      const poiHealthSvg =
-        `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 32 32">` +
-        `<path d="M16 2C10.5 2 6 6.5 6 12c0 7.4 8.7 16.7 9.4 17.5.3.3.6.5.6.5s.3-.2.6-.5C17.3 28.7 26 19.4 26 12 26 6.5 21.5 2 16 2z" fill="#2563eb" stroke="#1e40af" stroke-width="1.5"/>` +
-        `<circle cx="16" cy="12" r="4.5" fill="#fff"/>` +
-        `</svg>`;
-      const poiShopSvg =
-        `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 32 32">` +
-        `<path d="M16 2C10.5 2 6 6.5 6 12c0 7.4 8.7 16.7 9.4 17.5.3.3.6.5.6.5s.3-.2.6-.5C17.3 28.7 26 19.4 26 12 26 6.5 21.5 2 16 2z" fill="#7c3aed" stroke="#5b21b6" stroke-width="1.5"/>` +
-        `<circle cx="16" cy="12" r="4.5" fill="#fff"/>` +
-        `</svg>`;
 
       const areaHatchSvg =
         `<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 8 8">` +
@@ -224,19 +195,29 @@ export default function App() {
         `</svg>`;
 
       Promise.all([
-        map.imageSprite.add("selected-pin", selectedPinSvg),
-        map.imageSprite.add("poi-pin", poiPinSvg),
-        map.imageSprite.add("poi-food", poiFoodSvg),
-        map.imageSprite.add("poi-bank", poiBankSvg),
-        map.imageSprite.add("poi-health", poiHealthSvg),
-        map.imageSprite.add("poi-shop", poiShopSvg),
-        map.imageSprite.add("route-arrow", routeArrowSvg),
+        map.imageSprite.createFromTemplate("selected-pin", "pin", "#06b6b3", "#ffffff", 1),
+        map.imageSprite.createFromTemplate("destination-pin", "pin", "#ef4c4c", "#ffffff", 1),
+        map.imageSprite.createFromTemplate("poi-pin", "pin", "#3f72ff", "#ffffff", 1),
+        map.imageSprite.createFromTemplate("poi-food", "pin", "#8b5a2b", "#ffffff", 1),
+        map.imageSprite.createFromTemplate("poi-bank", "pin", "#0ea5e9", "#ffffff", 1),
+        map.imageSprite.createFromTemplate("poi-health", "pin", "#2563eb", "#ffffff", 1),
+        map.imageSprite.createFromTemplate("poi-shop", "pin", "#7c3aed", "#ffffff", 1),
+        map.imageSprite.createFromTemplate("route-arrow", "arrow-up", "#1f3ea8", "#ffffff", 1),
         map.imageSprite.add("area-hatch", areaHatchSvg)
       ]).then(() => {
         map.layers.add(
           new atlas.layer.SymbolLayer(selectedPointSourceRef.current!, undefined, {
             iconOptions: {
               image: "selected-pin",
+              size: 1,
+              anchor: "bottom"
+            }
+          })
+        );
+        map.layers.add(
+          new atlas.layer.SymbolLayer(destinationPointSourceRef.current!, undefined, {
+            iconOptions: {
+              image: "destination-pin",
               size: 1,
               anchor: "bottom"
             }
@@ -359,10 +340,35 @@ export default function App() {
 
 
       map.events.add("click", async (e: atlas.MapMouseEvent) => {
+        setContextMenu(null);
         const position = e.position;
         if (!position) return;
         const [lng, lat] = position;
         await runReverseGeocode(lng, lat);
+      });
+
+      map.events.add("contextmenu", (e: atlas.MapMouseEvent) => {
+        e.originalEvent?.preventDefault?.();
+        const position = e.position;
+        if (!position || !mapRef.current) return;
+        const rect = mapRef.current.getBoundingClientRect();
+        const pixel = (e as any).pixel;
+        const rawX =
+          typeof pixel?.x === "number"
+            ? pixel.x
+            : Array.isArray(pixel)
+              ? pixel[0]
+              : (e.originalEvent as MouseEvent)?.clientX - rect.left;
+        const rawY =
+          typeof pixel?.y === "number"
+            ? pixel.y
+            : Array.isArray(pixel)
+              ? pixel[1]
+              : (e.originalEvent as MouseEvent)?.clientY - rect.top;
+        openContextMenu(rawX ?? 0, rawY ?? 0, {
+          lat: position[1],
+          lng: position[0]
+        });
       });
     });
 
@@ -370,6 +376,11 @@ export default function App() {
       map.dispose();
     };
   }, []);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    menuItemRefs.current[0]?.focus();
+  }, [contextMenu]);
 
   const flyToDemo = () => {
     if (!mapInstance.current) return;
@@ -410,6 +421,88 @@ export default function App() {
       new atlas.data.Point([point.lng, point.lat])
     );
     source.setShapes([feature]);
+  };
+
+  const distanceMeters = (a: Coord, b: Coord) => {
+    const R = 6371000;
+    const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+    const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+    const lat1 = (a.lat * Math.PI) / 180;
+    const lat2 = (b.lat * Math.PI) / 180;
+    const h =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.sin(dLng / 2) * Math.sin(dLng / 2) * Math.cos(lat1) * Math.cos(lat2);
+    return 2 * R * Math.asin(Math.sqrt(h));
+  };
+
+  const validateInsideArea = async (coord: Coord) => {
+    try {
+      const response = await fetch(`${apiBase}/locations/validate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          areaId: defaultAreaId,
+          coordinate: { latitude: coord.lat, longitude: coord.lng }
+        })
+      });
+      const payload = (await response.json()) as any;
+      if (!response.ok || !payload?.success) {
+        setStatus(payload?.message || payload?.errorCode || "Validation failed.");
+        return;
+      }
+      setStatus(payload.data?.isInside ? "Inside service area." : "Outside service area.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Validation failed.");
+    }
+  };
+
+  const openContextMenu = (rawX: number, rawY: number, coord: Coord) => {
+    if (!mapRef.current) return;
+    const rect = mapRef.current.getBoundingClientRect();
+    const width = rect.width;
+    const height = rect.height;
+    const menuWidth = 210;
+    const menuHeight = 220;
+    const x = Math.max(8, Math.min(rawX, width - menuWidth - 8));
+    const y = Math.max(8, Math.min(rawY, height - menuHeight - 8));
+    setContextMenu({ x, y, coord });
+  };
+
+  const handleMenuKeyDown = (event: React.KeyboardEvent) => {
+    if (!contextMenu) return;
+    const items = menuItemRefs.current.filter(Boolean) as HTMLButtonElement[];
+    const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setContextMenu(null);
+      mapRef.current?.focus();
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      items[(index + 1) % items.length]?.focus();
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      items[(index - 1 + items.length) % items.length]?.focus();
+    }
+  };
+
+  const resetMapState = () => {
+    routeSourceRef.current?.clear();
+    destinationPointSourceRef.current?.clear();
+    selectedPointSourceRef.current?.clear();
+    isolineSourceRef.current?.clear();
+    polygonSourceRef.current?.clear();
+    poiSourceRef.current?.clear();
+    selectedPointRef.current = null;
+    setPoiResults([]);
+    setPoiVisible(false);
+    setIsolineVisible(false);
+    setShowPolygon(false);
+    setAddress("");
+    setBadgeText("");
+    setStatus("Ready");
   };
 
   const showPopup = (point: Coord, text: string) => {
@@ -839,6 +932,9 @@ export default function App() {
       const line = new atlas.data.LineString(coords);
       routeSourceRef.current.clear();
       routeSourceRef.current.add(line);
+      destinationPointSourceRef.current?.setShapes([
+        new atlas.data.Feature(new atlas.data.Point([destination.lng, destination.lat]))
+      ]);
 
       const bounds = atlas.data.BoundingBox.fromPositions(coords);
       mapInstance.current?.setCamera({ bounds });
@@ -964,7 +1060,7 @@ export default function App() {
           )}
         </form>
 
-        <section className="map-card">
+        <section className={`map-card${badgeText ? " has-badge" : ""}`}>
           {badgeText && (
             <button
               type="button"
@@ -983,7 +1079,111 @@ export default function App() {
             </button>
           )}
           <div className="map-hint">Click map to reverse‑geocode</div>
-          <div ref={mapRef} className="map" />
+          <div className="map-hint map-hint-secondary">
+            Right‑click for options
+          </div>
+          <div
+            ref={mapRef}
+            className="map"
+            onContextMenu={(event) => event.preventDefault()}
+            tabIndex={0}
+            role="application"
+            aria-label="Interactive map"
+            onKeyDown={(event) => {
+              if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+                event.preventDefault();
+                const center = mapInstance.current?.getCamera()
+                  .center as atlas.data.Position | undefined;
+                if (!center) return;
+                openContextMenu(
+                  (mapRef.current?.clientWidth ?? 0) / 2,
+                  (mapRef.current?.clientHeight ?? 0) / 2,
+                  { lat: center[1], lng: center[0] }
+                );
+              }
+            }}
+          />
+          {contextMenu && (
+            <div
+              className="context-menu"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+              role="menu"
+              aria-label="Map options"
+              onKeyDown={handleMenuKeyDown}
+              ref={menuRef}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                ref={(el) => (menuItemRefs.current[0] = el)}
+                onClick={() => {
+                  setContextMenu(null);
+                  selectedPointRef.current = contextMenu.coord;
+                  centerMap(contextMenu.coord, 16);
+                  setSelectedMarker(contextMenu.coord);
+                  setStatus("Start point set.");
+                }}
+              >
+                הגדר כנקודת התחלה
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                ref={(el) => (menuItemRefs.current[1] = el)}
+                onClick={() => {
+                  setContextMenu(null);
+                  if (!selectedPointRef.current) {
+                    setStatus("Select a start point first.");
+                    return;
+                  }
+                  showPopup(contextMenu.coord, "Destination");
+                  drawRouteTo(contextMenu.coord);
+                }}
+              >
+                הגדר כיעד
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                ref={(el) => (menuItemRefs.current[2] = el)}
+                onClick={() => {
+                  setContextMenu(null);
+                  validateInsideArea(contextMenu.coord);
+                }}
+              >
+                בדוק אם בתוך אזור שירות
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                ref={(el) => (menuItemRefs.current[3] = el)}
+                onClick={() => {
+                  setContextMenu(null);
+                  const start = selectedPointRef.current;
+                  if (!start) {
+                    setStatus("Select a start point first.");
+                    return;
+                  }
+                  const meters = distanceMeters(start, contextMenu.coord);
+                  const km = meters / 1000;
+                  setStatus(`Distance: ${km.toFixed(2)} km`);
+                }}
+              >
+                חשב מרחק מכאן
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                ref={(el) => (menuItemRefs.current[4] = el)}
+                onClick={() => {
+                  setContextMenu(null);
+                  resetMapState();
+                }}
+              >
+                איפוס
+              </button>
+            </div>
+          )}
         </section>
       </main>
     </div>

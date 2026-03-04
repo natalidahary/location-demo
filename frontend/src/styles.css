@@ -309,6 +309,55 @@ button:hover {
   pointer-events: none;
 }
 
+.map-hint-secondary {
+  top: 52px;
+  font-weight: 700;
+  background: rgba(255, 250, 242, 0.85);
+}
+
+.map-card.has-badge .map-hint {
+  top: 64px;
+}
+
+.map-card.has-badge .map-hint-secondary {
+  top: 100px;
+}
+
+.context-menu {
+  position: absolute;
+  z-index: 6;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: #ffffff;
+  border: 1px solid #e2d8c8;
+  border-radius: 12px;
+  box-shadow: 0 12px 24px rgba(31, 29, 26, 0.18);
+}
+
+.context-menu button {
+  background: #fffaf2;
+  color: #2f2a23;
+  border: 1px solid #e6d9c6;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: right;
+  cursor: pointer;
+}
+
+.context-menu button:hover {
+  background: #f4e7d4;
+}
+
+.context-menu button:focus-visible {
+  outline: 2px solid #e26d3d;
+  outline-offset: 2px;
+}
+
 @media (max-width: 900px) {
   .page {
     padding: 20px;
