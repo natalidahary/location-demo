@@ -57,6 +57,7 @@ export default function App() {
   } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const routePathRef = useRef<Coord[]>([]);
 
   const runReverseGeocode = async (lng: number, lat: number) => {
     setStatus(`Clicked: ${lat.toFixed(5)}, ${lng.toFixed(5)} · Reverse geocoding...`);
@@ -933,6 +934,7 @@ export default function App() {
       const line = new atlas.data.LineString(coords);
       routeSourceRef.current.clear();
       routeSourceRef.current.add(line);
+      routePathRef.current = coords.map(([lng, lat]: [number, number]) => ({ lat, lng }));
       destinationPointSourceRef.current?.setShapes([
         new atlas.data.Feature(new atlas.data.Point([destination.lng, destination.lat]))
       ]);
@@ -945,6 +947,49 @@ export default function App() {
       setStatus(`Route: ${km} km, ${min} min`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Route failed.");
+    }
+  };
+
+  const exportStaticMap = async () => {
+    if (!mapInstance.current || !mapRef.current) {
+      setStatus("Map not ready.");
+      return;
+    }
+    const camera = mapInstance.current.getCamera();
+    const center = camera.center as atlas.data.Position;
+    const zoom = camera.zoom ?? 12;
+    const width = Math.min(1024, Math.max(320, Math.round(mapRef.current.clientWidth)));
+    const height = Math.min(1024, Math.max(320, Math.round(mapRef.current.clientHeight)));
+
+    try {
+      const response = await fetch(`${apiBase}/locations/static-map`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          center: { latitude: center[1], longitude: center[0] },
+          zoom,
+          width,
+          height,
+          path: routePathRef.current
+        })
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        setStatus(message || "Static map failed.");
+        return;
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "map.png";
+      link.click();
+      URL.revokeObjectURL(url);
+      setStatus("Static map downloaded.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Static map failed.");
     }
   };
 
@@ -1031,6 +1076,9 @@ export default function App() {
           </label>
           <button type="button" onClick={togglePoi}>
             {poiVisible ? "Hide POI" : "Show POI"}
+          </button>
+          <button type="button" onClick={exportStaticMap}>
+            Export Map Image
           </button>
           {poiResults.length > 0 && (
             <ul className="poi-list">

@@ -8,9 +8,12 @@ using LocationDemo.Api.Location.Models.Route;
 using LocationDemo.Api.Location.Models.Shared;
 using LocationDemo.Api.Location.Models.Spatial;
 using LocationDemo.Api.Location.Configuration;
+using LocationDemo.Api.Location.Providers.Azure;
 using LocationDemo.Api.Location.Quality;
 using LocationDemo.Api.Location.Spatial;
 using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.WebUtilities;
+using System.Globalization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -334,6 +337,77 @@ app.MapPost("/locations/validate", async (SpatialValidationRequest request, ISpa
     return Results.Ok(ApiResponse<SpatialValidationResult>.Ok(result));
 })
 .WithName("ValidateLocation");
+
+app.MapPost("/locations/static-map", async (
+    StaticMapRequest request,
+    IOptions<AzureMapsOptions> options,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken ct) =>
+{
+    var azure = options.Value;
+    if (string.IsNullOrWhiteSpace(azure.SubscriptionKey))
+    {
+        return Results.Problem(
+            title: "Azure Maps key missing.",
+            detail: "Configure AzureMaps:SubscriptionKey.");
+    }
+
+    var width = Math.Clamp(request.Width, 64, 2048);
+    var height = Math.Clamp(request.Height, 64, 2048);
+    var zoomInt = (int)Math.Round(request.Zoom, MidpointRounding.AwayFromZero);
+    var zoom = Math.Clamp(zoomInt, 0, 22);
+
+    var query = new Dictionary<string, string?>
+    {
+        ["api-version"] = "2024-04-01",
+        ["tilesetId"] = "microsoft.base.road",
+        ["center"] = $"{request.Center.Longitude.ToString(CultureInfo.InvariantCulture)},{request.Center.Latitude.ToString(CultureInfo.InvariantCulture)}",
+        ["zoom"] = zoom.ToString(CultureInfo.InvariantCulture),
+        ["width"] = width.ToString(CultureInfo.InvariantCulture),
+        ["height"] = height.ToString(CultureInfo.InvariantCulture),
+        ["format"] = "png",
+        ["language"] = string.IsNullOrWhiteSpace(azure.Language) ? null : azure.Language
+    };
+
+    if (request.Path is { Count: > 1 })
+    {
+        var sampled = request.Path;
+        if (sampled.Count > 100)
+        {
+            var step = (int)Math.Ceiling(sampled.Count / 100d);
+            sampled = sampled.Where((_, index) => index % step == 0).ToArray();
+        }
+
+        var coordText = string.Join(
+            "|",
+            sampled.Select(p =>
+                $"{p.Longitude.ToString(CultureInfo.InvariantCulture)} {p.Latitude.ToString(CultureInfo.InvariantCulture)}"));
+
+        query["path"] = $"lc2dd4bf|lw4|la0.9||{coordText}";
+
+        var start = sampled.First();
+        var end = sampled.Last();
+        query["pins"] =
+            $"default|sc0.9|lc06b6b3||{start.Longitude.ToString(CultureInfo.InvariantCulture)} {start.Latitude.ToString(CultureInfo.InvariantCulture)}" +
+            $"|{end.Longitude.ToString(CultureInfo.InvariantCulture)} {end.Latitude.ToString(CultureInfo.InvariantCulture)}";
+    }
+    var baseUrl = $"{azure.BaseUrl.TrimEnd('/')}/map/static";
+    var url = QueryHelpers.AddQueryString(baseUrl, query);
+    var client = httpClientFactory.CreateClient();
+    var response = await client.GetAsync($"{url}&subscription-key={Uri.EscapeDataString(azure.SubscriptionKey)}", ct);
+
+    if (!response.IsSuccessStatusCode)
+    {
+        var body = await response.Content.ReadAsStringAsync(ct);
+        return Results.Problem(
+            title: "Static map request failed.",
+            detail: $"Azure Maps returned {(int)response.StatusCode}: {body}");
+    }
+
+    var bytes = await response.Content.ReadAsByteArrayAsync(ct);
+    return Results.File(bytes, "image/png");
+})
+.WithName("StaticMap");
 
 app.MapGet("/locations/service-areas", (IOptions<SpatialValidationOptions> options, IHostEnvironment env) =>
 {
