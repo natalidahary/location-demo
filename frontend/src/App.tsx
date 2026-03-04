@@ -153,7 +153,8 @@ export default function App() {
             "satellite",
             "satellite_road_labels"
           ],
-          layout: "list"
+          layout: "list",
+          style: atlas.ControlStyle.dark
         }),
         { position: atlas.ControlPosition.TopRight }
       );
