@@ -1,21 +1,18 @@
-# Location Demo – Provider-Agnostic Location Validation Platform
+# Azure Geo Platform – Provider‑Agnostic Location Validation
 
-A full-stack geo system demonstrating how to build a production-style location validation engine using HERE Free-tier services while keeping the backend fully vendor-agnostic.
-
-<img width="700" height="400" alt="Screenshot 2026-03-02 at 23 21 36" src="https://github.com/user-attachments/assets/c4c20614-0d06-4087-8979-dea9aa0b6ae5" />
+A full‑stack geo system demonstrating a production‑style location validation engine using **Azure Maps** while keeping the backend vendor‑agnostic.
 
 ## Stack
 
 - Backend: .NET 10 Web API
 - Frontend: React + Vite + TypeScript
-- Map Rendering: HERE Maps JavaScript SDK
-- Spatial Engine: NetTopologySuite
-- Architecture Goal: Switch map providers (HERE ↔ Azure Maps) via DI without touching business logic
+- Map Rendering: Azure Maps Web SDK
+- Spatial Engine: NetTopologySuite (local GeoJSON validation)
+- Architecture Goal: switch map providers via DI without touching business logic
 
 ## What This System Does
 
-This is not just a map demo.  
-It is a structured location intelligence layer with validation and service-area control.
+This is not just a map demo. It is a structured location intelligence layer with validation and service‑area control.
 
 ### Core Capabilities
 
@@ -28,16 +25,14 @@ It is a structured location intelligence layer with validation and service-area 
 With enforced quality rules:
 
 - Minimum confidence threshold
-- House-number requirement
+- House‑number requirement
 - Optional city match validation
 
-#### Spatial Service-Area Validation
+#### Spatial Service‑Area Validation
 
 - Service areas stored as GeoJSON
-- Point-in-polygon validation using NetTopologySuite
-- Structured validation result (isAllowed, areaId, errorCode)
-
-This ensures service eligibility decisions are controlled by your domain logic — not by HERE.
+- Point‑in‑polygon validation using NetTopologySuite
+- Structured validation result (isInside, areaId, reason)
 
 #### Routing
 
@@ -47,82 +42,102 @@ Returns:
 
 - Distance
 - Duration
-- Flexible polyline
+- Path coordinates
 
-Route is drawn on the map.
+Route is drawn on the map with gradient + arrows.
 
-#### Isoline (Drive-Time Polygon)
+#### Isoline (Drive‑Time Polygon)
 
-- Generates 10-minute reachable area from selected point
+- Generates 10‑minute reachable area from selected point
 - Drawn as polygon overlay
 - Toggle show/hide behavior
 
 #### POI Search
 
-- Keyword & category-based discovery
-- Separate POI markers
+- Keyword & category‑based discovery
+- Category‑colored POI markers
 - Clicking a POI:
   - Centers map
   - Draws route from selected point to POI
   - Does not replace validated address
 
+#### Context Menu (Right‑Click)
+
+- Set start point
+- Set destination
+- Validate inside service area
+- Measure distance
+- Reset
+
+#### Geolocation
+
+- “Use my location” (browser geolocation)
+- Centers map + reverse‑geocodes automatically
+
+#### Static Map Export
+
+- Export current map view as PNG
+- Route line included when available
+- Useful for reports / PDF / email
+
 ---
 
-## HERE Free Plan – Services Used
+## Azure Maps – Services Used
 
-This project uses only services available in the HERE Free / Limited plan.
+This project uses these Azure Maps services:
 
-Based on actual usage, the system consumes:
-
-- Geocoding & Search
+- **Maps / Base Map Tiles** (interactive map)
+- **Traffic** (flow + incidents overlay)
+- **Search**
   - Autosuggest
-  - Discover / Search (POI)
-  - Geocode & Reverse Geocode
-- Routing
-  - Isoline Routing
-  - Standard routing
-- Maps
-  - Vector Tiles
-  - Rendering metadata
+  - Geocode + Reverse Geocode
+  - POI Discover
+- **Routing**
+  - Route directions
+  - Isoline / reachability
+- **Render – Static Map** (PNG export)
 
-All usage remains within free-tier service categories.  
-No enterprise-only datasets or fleet services are used.
+Not used:
+
+- Weather tiles
+- Imagery tiles
+- Location Insights
+- Geolocation service (we use browser geolocation)
+- Time Zone
 
 ---
 
 ## What Is Custom (Business Layer)
 
-The project adds a structured domain layer on top of HERE:
-
 - Confidence enforcement
-- House-number enforcement
+- House‑number enforcement
 - City validation logic
-- GeoJSON-managed service areas
-- Point-in-polygon validation
+- GeoJSON‑managed service areas
+- Point‑in‑polygon validation
 - Unified API response contract
-- Provider-agnostic abstraction (`ILocationService`)
+- Provider‑agnostic abstraction (`ILocationService`)
 
-HERE DTOs never leak into the domain layer.
+Azure Maps DTOs never leak into the domain layer.
 
 ---
 
 ## Architecture Overview
 
 ```
-Frontend (React + HERE JS)
+Frontend (React + Azure Maps Web SDK)
         ↓
 Backend Controllers
         ↓
 ILocationService
         ↓
-HereLocationService (current provider)
+AzureLocationService (current provider)
 ```
 
-To switch to Azure Maps:
+To switch providers:
 
-- Implement `AzureLocationService`
+- Implement another `ILocationService`
 - Change DI registration
-- No controller or business-rule changes required
+- No controller or business‑rule changes required
 
 ---
 
@@ -148,6 +163,8 @@ Endpoints:
 - `POST /locations/route`
 - `POST /locations/isoline`
 - `POST /locations/poi`
+- `POST /locations/validate`
+- `POST /locations/static-map`
 - `GET /locations/service-areas`
 
 ---
@@ -158,7 +175,7 @@ Endpoints:
 
 - .NET SDK 10+
 - Node.js 18+
-- HERE API Key
+- Azure Maps key
 
 ### Backend
 
@@ -183,7 +200,7 @@ cp .env.example .env
 Set:
 
 ```
-VITE_HERE_API_KEY=YOUR_HERE_API_KEY
+VITE_AZURE_MAPS_KEY=YOUR_AZURE_MAPS_KEY
 VITE_API_BASE=http://localhost:5206
 ```
 
@@ -199,8 +216,6 @@ Open:
 http://localhost:5173
 ```
 
-Frontend source is in `frontend/src/*.tsx`.
-
 ---
 
 ## Configuration Highlights
@@ -208,6 +223,12 @@ Frontend source is in `frontend/src/*.tsx`.
 `backend/LocationDemo.Api/appsettings.json`
 
 ```json
+"AzureMaps": {
+  "SubscriptionKey": "YOUR_AZURE_MAPS_KEY",
+  "BaseUrl": "https://atlas.microsoft.com",
+  "Language": "he-IL",
+  "CountrySet": "IL"
+},
 "GeocodeQuality": {
   "MinConfidence": 0.8,
   "RequireHouseNumber": true,
@@ -218,3 +239,7 @@ Frontend source is in `frontend/src/*.tsx`.
   "DefaultAreaId": "caesarea"
 }
 ```
+
+For local secrets, use:
+
+- `backend/LocationDemo.Api/appsettings.Local.json` (ignored in git)

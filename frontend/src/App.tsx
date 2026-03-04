@@ -507,6 +507,30 @@ export default function App() {
     setStatus("Ready");
   };
 
+  const useMyLocation = () => {
+    if (!navigator.geolocation) {
+      setStatus("Geolocation is not supported.");
+      return;
+    }
+    setStatus("Getting your location...");
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const point = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude
+        };
+        selectedPointRef.current = point;
+        centerMap(point, 16);
+        setSelectedMarker(point);
+        await runReverseGeocode(point.lng, point.lat);
+      },
+      (error) => {
+        setStatus(error.message || "Failed to get location.");
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+    );
+  };
+
   const showPopup = (point: Coord, text: string) => {
     if (!mapInstance.current) return;
     if (popupRef.current) {
@@ -1056,6 +1080,9 @@ export default function App() {
           </label>
           <button type="button" onClick={togglePolygon}>
             {showPolygon ? "Hide Service Area" : "Show Service Area"}
+          </button>
+          <button type="button" onClick={useMyLocation}>
+            Use My Location
           </button>
           <button type="button" onClick={toggleIsoline}>
             {isolineVisible ? "Hide Isoline" : "Show 10 min Isoline"}
