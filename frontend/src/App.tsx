@@ -994,7 +994,10 @@ export default function App() {
           zoom,
           width,
           height,
-          path: routePathRef.current
+          path: routePathRef.current.map((p) => ({
+            latitude: p.lat,
+            longitude: p.lng
+          }))
         })
       });
 
