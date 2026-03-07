@@ -426,7 +426,7 @@ export default function App() {
         }
         const rect = mapRef?.getCanvasContainer?.().getBoundingClientRect?.() ??
           mapRef?.getMapContainer?.().getBoundingClientRect?.() ??
-          mapRef?.getContainer?.().getBoundingClientRect?.();
+          mapRef?.getMapContainer?.().getBoundingClientRect?.();
         const mapEl = mapRef?.getCanvasContainer?.() || mapRef?.getMapContainer?.();
         if (rect && mapEl && e?.originalEvent) {
           const evt = e.originalEvent as MouseEvent;
