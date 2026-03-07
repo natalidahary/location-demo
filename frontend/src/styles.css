@@ -231,6 +231,8 @@ button:hover {
   width: 100%;
   height: 100%;
   min-height: 480px;
+  position: relative;
+  z-index: 1;
 }
 
 .map,
@@ -240,6 +242,7 @@ button:hover {
 .map .azure-map-canvas {
   cursor: crosshair;
 }
+
 
 .atlas-style-control,
 .atlas-style-control * {
@@ -315,12 +318,23 @@ button:hover {
   background: rgba(255, 250, 242, 0.85);
 }
 
+.map-hint-tertiary {
+  top: 88px;
+  font-weight: 600;
+  background: rgba(255, 250, 242, 0.9);
+  color: #8a4a2b;
+}
+
 .map-card.has-badge .map-hint {
   top: 64px;
 }
 
 .map-card.has-badge .map-hint-secondary {
   top: 100px;
+}
+
+.map-card.has-badge .map-hint-tertiary {
+  top: 136px;
 }
 
 .context-menu {
@@ -356,6 +370,88 @@ button:hover {
 .context-menu button:focus-visible {
   outline: 2px solid #e26d3d;
   outline-offset: 2px;
+}
+
+.overlay-editor {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.overlay-drag {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  cursor: move;
+  touch-action: none;
+}
+
+.overlay-handle {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  margin-left: -12px;
+  margin-top: -12px;
+  border-radius: 50%;
+  border: 2px solid #e26d3d;
+  background: #fffaf2;
+  box-shadow: 0 4px 10px rgba(31, 29, 26, 0.2);
+  pointer-events: auto;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.overlay-panel {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 80;
+  background: rgba(255, 250, 242, 0.95);
+  border: 1px solid #e2d8c8;
+  border-radius: 12px;
+  padding: 10px;
+  min-width: 220px;
+  box-shadow: 0 12px 24px rgba(31, 29, 26, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.overlay-panel-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.overlay-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #3f3a32;
+}
+
+.overlay-panel input[type="range"] {
+  width: 180px;
+}
+
+.overlay-panel button {
+  background: #fffaf2;
+  color: #2f2a23;
+  border: 1px solid #e6d9c6;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.overlay-panel button:hover {
+  background: #f4e7d4;
 }
 
 @media (max-width: 900px) {

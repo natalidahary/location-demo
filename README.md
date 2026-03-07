@@ -80,6 +80,28 @@ Route is drawn on the map with gradient + arrows.
 - Route line included when available
 - Useful for reports / PDF / email
 
+#### Image Overlays (Decll / Planning)
+
+Two overlay modes for planning images (PNG/JPG):
+
+Manual overlay:
+- Upload image → appears centered on current view
+- Drag to move, rotate, and scale with handles
+- Opacity slider, lock/unlock, reset, remove
+- Uses Azure Maps **ImageLayer** for rendering; the drag/rotate/scale UI is custom
+
+Geo‑anchored overlay:
+- Upload image → click top‑left corner, then bottom‑right corner
+- Click “Apply placement” to anchor it geographically
+- No rotation (north‑up for spatial accuracy)
+- Uses Azure Maps **ImageLayer** for rendering; placement UI is custom
+
+#### Caesarea View
+
+- “Open Caesarea View” button zooms to a predefined bounding box
+- Includes Caesarea residential + industrial area
+- The button and bounds are custom (not a built‑in Azure control)
+
 ---
 
 ## Azure Maps – Services Used
@@ -96,6 +118,7 @@ This project uses these Azure Maps services:
   - Route directions
   - Isoline / reachability
 - **Render – Static Map** (PNG export)
+- **Image Layer** (client‑side overlays)
 
 Not used:
 

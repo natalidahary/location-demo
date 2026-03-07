@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import * as atlas from "azure-maps-control";
+import { useOverlayManager } from "./useOverlayManager";
 
 type Coord = { lat: number; lng: number };
 type Position = { latitude: number; longitude: number };
@@ -58,6 +59,7 @@ export default function App() {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const routePathRef = useRef<Coord[]>([]);
+  const [mapReady, setMapReady] = useState(false);
 
   const runReverseGeocode = async (lng: number, lat: number) => {
     setStatus(`Clicked: ${lat.toFixed(5)}, ${lng.toFixed(5)} · Reverse geocoding...`);
@@ -112,6 +114,17 @@ export default function App() {
     }
   };
 
+  const overlay = useOverlayManager({
+    mapRef,
+    mapInstance,
+    setStatus,
+    mapReady
+  });
+  const overlayRef = useRef(overlay);
+  useEffect(() => {
+    overlayRef.current = overlay;
+  }, [overlay]);
+
   useEffect(() => {
     if (!mapRef.current) return;
 
@@ -142,6 +155,34 @@ export default function App() {
     map.events.add("ready", () => {
       mapInstance.current = map;
       map.setTraffic({ flow: "relative", incidents: true });
+      setMapReady(true);
+
+      map.events.add("error", (event: any) => {
+        const err = event?.error;
+        if (err?.name === "AbortError") {
+          return;
+        }
+        const status = err?.status || err?.statusCode;
+        const url = err?.url || err?.request?.url || err?.requestUrl;
+        if (err) {
+          console.error("[map] error", err);
+        }
+        if (
+          status === 429 &&
+          typeof url === "string" &&
+          url.includes("traffic")
+        ) {
+          map.setTraffic({ flow: "none", incidents: false });
+          setStatus("Traffic rate limit hit. Traffic disabled.");
+        }
+        if (
+          status === 401 &&
+          typeof url === "string" &&
+          url.includes("atlas.microsoft.com")
+        ) {
+          setStatus("Azure Maps key unauthorized. Check VITE_AZURE_MAPS_KEY and restart dev server.");
+        }
+      });
 
       map.controls.add(
         new atlas.control.StyleControl({
@@ -341,12 +382,87 @@ export default function App() {
       });
 
 
+      const resolveMapCoord = (e: any) => {
+        const mapRef = mapInstance.current;
+        const candidates = [e?.position, e?.lngLat, e?.location, e?.coordinate, e?.pixel];
+        for (const candidate of candidates) {
+          if (!candidate) continue;
+          if (Array.isArray(candidate) && candidate.length === 2) {
+            const [a, b] = candidate;
+            if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+            if (a >= -180 && a <= 180 && b >= -90 && b <= 90) {
+              return { lng: a, lat: b };
+            }
+            if (mapRef) {
+              const pos = mapRef.pixelsToPositions([[a, b]])?.[0] as
+                | atlas.data.Position
+                | undefined;
+              if (pos && Number.isFinite(pos[0]) && Number.isFinite(pos[1])) {
+                return { lng: pos[0], lat: pos[1] };
+              }
+            }
+          } else if (typeof candidate === "object") {
+            if (
+              Number.isFinite(candidate.lng) &&
+              Number.isFinite(candidate.lat)
+            ) {
+              return { lng: candidate.lng, lat: candidate.lat };
+            }
+            if (
+              Number.isFinite(candidate.longitude) &&
+              Number.isFinite(candidate.latitude)
+            ) {
+              return { lng: candidate.longitude, lat: candidate.latitude };
+            }
+            if (Number.isFinite(candidate.x) && Number.isFinite(candidate.y) && mapRef) {
+              const pos = mapRef.pixelsToPositions([[candidate.x, candidate.y]])?.[0] as
+                | atlas.data.Position
+                | undefined;
+              if (pos && Number.isFinite(pos[0]) && Number.isFinite(pos[1])) {
+                return { lng: pos[0], lat: pos[1] };
+              }
+            }
+          }
+        }
+        const rect = mapRef?.getCanvasContainer?.().getBoundingClientRect?.() ??
+          mapRef?.getMapContainer?.().getBoundingClientRect?.() ??
+          mapRef?.getContainer?.().getBoundingClientRect?.();
+        const mapEl = mapRef?.getCanvasContainer?.() || mapRef?.getMapContainer?.();
+        if (rect && mapEl && e?.originalEvent) {
+          const evt = e.originalEvent as MouseEvent;
+          const px = evt.clientX - rect.left;
+          const py = evt.clientY - rect.top;
+          if (Number.isFinite(px) && Number.isFinite(py) && mapRef) {
+            const pos = mapRef.pixelsToPositions([[px, py]])?.[0] as
+              | atlas.data.Position
+              | undefined;
+            if (pos && Number.isFinite(pos[0]) && Number.isFinite(pos[1])) {
+              return { lng: pos[0], lat: pos[1] };
+            }
+          }
+        }
+        return null;
+      };
+
       map.events.add("click", async (e: atlas.MapMouseEvent) => {
         setContextMenu(null);
-        const position = e.position;
-        if (!position) return;
-        const [lng, lat] = position;
-        await runReverseGeocode(lng, lat);
+        const coord = resolveMapCoord(e);
+        if (!coord) {
+          console.warn("[overlay] map click missing coordinates", {
+            position: e.position,
+            pixel: (e as any).pixel
+          });
+          return;
+        }
+        const overlayState = overlayRef.current;
+        if (overlayState.overlayMode === "geo") {
+          const handled = overlayState.handleGeoClick(coord);
+          if (!handled) {
+            setStatus("Click inside the map to choose a corner.");
+          }
+          return;
+        }
+        await runReverseGeocode(coord.lng, coord.lat);
       });
 
       map.events.add("contextmenu", (e: atlas.MapMouseEvent) => {
@@ -488,6 +604,16 @@ export default function App() {
       event.preventDefault();
       items[(index - 1 + items.length) % items.length]?.focus();
     }
+  };
+
+
+  const openCaesareaView = () => {
+    if (!mapInstance.current) return;
+    const bounds = atlas.data.BoundingBox.fromPositions([
+      [34.87, 32.46],
+      [35.0, 32.56]
+    ]);
+    mapInstance.current.setCamera({ bounds, padding: 40 });
   };
 
   const resetMapState = () => {
@@ -1084,6 +1210,40 @@ export default function App() {
           <button type="button" onClick={togglePolygon}>
             {showPolygon ? "Hide Service Area" : "Show Service Area"}
           </button>
+          <button type="button" onClick={openCaesareaView}>
+            Open Caesarea View
+          </button>
+          <label>
+            Upload overlay (manual)
+            <input
+              type="file"
+              accept="image/png,image/jpeg"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                overlay.startManualOverlay(file);
+                event.currentTarget.value = "";
+              }}
+            />
+          </label>
+          <label>
+            Upload overlay (geo‑anchored)
+            <input
+              type="file"
+              accept="image/png,image/jpeg"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                try {
+                  overlay.startGeoOverlay(file);
+                } catch (error) {
+                  console.error("[overlay] startGeoOverlay failed", error);
+                  setStatus("Failed to start geo-anchored overlay.");
+                }
+                event.currentTarget.value = "";
+              }}
+            />
+          </label>
           <button type="button" onClick={useMyLocation}>
             Use My Location
           </button>
@@ -1161,6 +1321,11 @@ export default function App() {
           <div className="map-hint map-hint-secondary">
             Right‑click for options
           </div>
+          {overlay.geoInstruction && (
+            <div className="map-hint map-hint-tertiary">
+              {overlay.geoInstruction}
+            </div>
+          )}
           <div
             ref={mapRef}
             className="map"
@@ -1169,6 +1334,11 @@ export default function App() {
             role="application"
             aria-label="Interactive map"
             onKeyDown={(event) => {
+              if (event.key === "Escape" && overlay.overlayMode === "geo") {
+                event.preventDefault();
+                overlay.cancelGeoPlacement();
+                return;
+              }
               if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
                 event.preventDefault();
                 const center = mapInstance.current?.getCamera()
@@ -1261,6 +1431,71 @@ export default function App() {
               >
                 איפוס
               </button>
+            </div>
+          )}
+          {(overlay.overlayActive || overlay.overlayMode !== "none") && (
+            <div className="overlay-panel">
+              <div className="overlay-panel-row">
+                <label>
+                  Opacity
+                  <input
+                    type="range"
+                    min={0.2}
+                    max={1}
+                    step={0.05}
+                    value={overlay.overlayOpacity}
+                    onChange={(event) =>
+                      overlay.setOpacity(Number(event.target.value))
+                    }
+                  />
+                </label>
+              </div>
+              <div className="overlay-panel-row">
+                <button
+                  type="button"
+                  onClick={() => overlay.setOverlayLocked(!overlay.overlayLocked)}
+                >
+                  {overlay.overlayLocked ? "Unlock" : "Lock"}
+                </button>
+                {overlay.overlayMode === "manual" && (
+                  <button type="button" onClick={overlay.resetManual}>
+                    Reset
+                  </button>
+                )}
+                <button type="button" onClick={overlay.removeOverlay}>
+                  Remove
+                </button>
+              </div>
+              {overlay.geoPendingCorners && (
+                <div className="overlay-panel-row">
+                  <button type="button" onClick={overlay.applyGeoPlacement}>
+                    Apply placement
+                  </button>
+                  <button type="button" onClick={overlay.cancelGeoPlacement}>
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {overlay.overlayMode === "manual" &&
+            overlay.overlayActive &&
+            !overlay.overlayLocked && (
+            <div className="overlay-editor">
+              <div
+                className="overlay-drag"
+                onPointerDown={overlay.beginDragOverlay}
+              />
+              {overlay.overlayHandles.map((p, index) => (
+                <button
+                  type="button"
+                  key={`handle-${index}`}
+                  className="overlay-handle"
+                  style={{ left: p.x, top: p.y }}
+                  onPointerDown={(event) => overlay.beginDragHandle(index, event)}
+                  aria-label={`Resize handle ${index + 1}`}
+                />
+              ))}
             </div>
           )}
         </section>
