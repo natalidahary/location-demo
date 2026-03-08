@@ -137,6 +137,18 @@ Overlays are saved in Azure Blob Storage:
 - Container: `overlays`
 - Image file (PNG/JPG)
 - Matching metadata JSON (`<id>.json`)
+  - Id
+  - Mode (manual or geo)
+  - Opacity
+  - CreatedAt
+  - Corners (array of 4 objects):
+  - Latitude
+  - Longitude
+  - ImageFileName
+  - ImageContentType
+  - ImageBlobName
+  - ImageUrl
+  - MetadataBlobName
 
 Backend reads the storage connection string from:
 
