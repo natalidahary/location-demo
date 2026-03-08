@@ -51,6 +51,8 @@ export default function App() {
   const [poiQuery, setPoiQuery] = useState("coffee");
   const [poiVisible, setPoiVisible] = useState(false);
   const [poiResults, setPoiResults] = useState<PoiItem[]>([]);
+  const [manualOverlayName, setManualOverlayName] = useState("");
+  const [geoOverlayName, setGeoOverlayName] = useState("");
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -156,6 +158,8 @@ export default function App() {
       mapInstance.current = map;
       map.setTraffic({ flow: "relative", incidents: true });
       setMapReady(true);
+      // Default view on load.
+      openCaesareaView();
 
       map.events.add("error", (event: any) => {
         const err = event?.error;
@@ -460,6 +464,9 @@ export default function App() {
           if (!handled) {
             setStatus("Click inside the map to choose a corner.");
           }
+          return;
+        }
+        if (overlayState.handleOverlayClick(coord)) {
           return;
         }
         await runReverseGeocode(coord.lng, coord.lat);
@@ -1146,6 +1153,61 @@ export default function App() {
     }
   };
 
+  const saveOverlay = async () => {
+    const payload = overlay.getOverlaySavePayload();
+    if (!payload) {
+      setStatus("No overlay to save.");
+      return;
+    }
+    try {
+      const form = new FormData();
+      form.append("image", payload.imageFile);
+      form.append("metadata", JSON.stringify(payload.metadata));
+      const response = await fetch(`${apiBase}/overlays`, {
+        method: "POST",
+        body: form
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.success) {
+        setStatus(data?.message || "Failed to save overlay.");
+        return;
+      }
+      const savedId =
+        data?.data?.id || data?.data?.Id || data?.data?.ID || null;
+      if (savedId) {
+        overlay.markOverlaySaved(String(savedId));
+      }
+      setStatus("Overlay saved to Azure Storage.");
+      overlay.clearOverlaySelection();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to save overlay.");
+    }
+  };
+
+  const removeOverlay = async () => {
+    if (overlay.overlaySaved && overlay.overlayId) {
+      try {
+        const response = await fetch(`${apiBase}/overlays/${overlay.overlayId}`, {
+          method: "DELETE"
+        });
+        if (!response.ok) {
+          const message = await response.text();
+          setStatus(message || "Failed to remove overlay from storage.");
+          return;
+        }
+        setStatus("Overlay removed from Azure Storage.");
+      } catch (error) {
+        setStatus(
+          error instanceof Error
+            ? error.message
+            : "Failed to remove overlay from storage."
+        );
+        return;
+      }
+    }
+    overlay.removeOverlay();
+  };
+
   return (
     <div className="page">
       <header className="header">
@@ -1221,28 +1283,47 @@ export default function App() {
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 if (!file) return;
+                setManualOverlayName(file.name);
                 overlay.startManualOverlay(file);
                 event.currentTarget.value = "";
               }}
             />
+            {manualOverlayName && (
+              <div className="file-name">{manualOverlayName}</div>
+            )}
           </label>
           <label>
             Upload overlay (geo‑anchored)
             <input
               type="file"
-              accept="image/png,image/jpeg"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (!file) return;
+              accept="image/png,image/jpeg,.pgw,.jgw,.wld,.tfw"
+              multiple
+              onChange={async (event) => {
+                const files = Array.from(event.target.files ?? []);
+                if (files.length === 0) return;
+                const imageFile = files.find((file) =>
+                  file.type === "image/png" || file.type === "image/jpeg"
+                );
+                const worldFile = files.find((file) =>
+                  /\.(pgw|jgw|wld|tfw)$/i.test(file.name)
+                );
+                if (!imageFile || !worldFile) {
+                  setStatus("Select an image and its world file (.pgw/.jgw/.wld/.tfw).");
+                  event.currentTarget.value = "";
+                  return;
+                }
                 try {
-                  overlay.startGeoOverlay(file);
+                  setGeoOverlayName(`${imageFile.name} + ${worldFile.name}`);
+                  const worldText = await worldFile.text();
+                  await overlay.startGeoOverlayFromWorld(imageFile, worldText);
                 } catch (error) {
                   console.error("[overlay] startGeoOverlay failed", error);
-                  setStatus("Failed to start geo-anchored overlay.");
+                  setStatus("Failed to place geo‑anchored overlay.");
                 }
                 event.currentTarget.value = "";
               }}
             />
+            {geoOverlayName && <div className="file-name">{geoOverlayName}</div>}
           </label>
           <button type="button" onClick={useMyLocation}>
             Use My Location
@@ -1433,7 +1514,7 @@ export default function App() {
               </button>
             </div>
           )}
-          {(overlay.overlayActive || overlay.overlayMode !== "none") && (
+          {overlay.overlaySelected && (
             <div className="overlay-panel">
               <div className="overlay-panel-row">
                 <label>
@@ -1451,18 +1532,17 @@ export default function App() {
                 </label>
               </div>
               <div className="overlay-panel-row">
-                <button
-                  type="button"
-                  onClick={() => overlay.setOverlayLocked(!overlay.overlayLocked)}
-                >
-                  {overlay.overlayLocked ? "Unlock" : "Lock"}
-                </button>
+                {!overlay.overlaySaved && (
+                  <button type="button" onClick={saveOverlay}>
+                    Save
+                  </button>
+                )}
                 {overlay.overlayMode === "manual" && (
                   <button type="button" onClick={overlay.resetManual}>
                     Reset
                   </button>
                 )}
-                <button type="button" onClick={overlay.removeOverlay}>
+                <button type="button" onClick={removeOverlay}>
                   Remove
                 </button>
               </div>
@@ -1480,6 +1560,7 @@ export default function App() {
           )}
           {overlay.overlayMode === "manual" &&
             overlay.overlayActive &&
+            overlay.overlaySelected &&
             !overlay.overlayLocked && (
             <div className="overlay-editor">
               <div

@@ -91,8 +91,8 @@ Manual overlay:
 - Uses Azure Maps **ImageLayer** for rendering; the drag/rotate/scale UI is custom
 
 Geo‑anchored overlay:
-- Upload image → click top‑left corner, then bottom‑right corner
-- Click “Apply placement” to anchor it geographically
+- Upload image **together with its world file** (.pgw/.jgw/.wld/.tfw)
+- The overlay is placed automatically from the file’s coordinates
 - No rotation (north‑up for spatial accuracy)
 - Uses Azure Maps **ImageLayer** for rendering; placement UI is custom
 
@@ -127,6 +127,24 @@ Not used:
 - Location Insights
 - Geolocation service (we use browser geolocation)
 - Time Zone
+
+---
+
+## Overlay Persistence (Azure Blob Storage)
+
+Overlays are saved in Azure Blob Storage:
+
+- Container: `overlays`
+- Image file (PNG/JPG)
+- Matching metadata JSON (`<id>.json`)
+
+Backend reads the storage connection string from:
+
+```
+AZURE_STORAGE_CONNECTION_STRING
+```
+
+This is **server‑side only** and never exposed to the frontend.
 
 ---
 
@@ -188,6 +206,7 @@ Endpoints:
 - `POST /locations/poi`
 - `POST /locations/validate`
 - `POST /locations/static-map`
+- `POST /overlays`
 - `GET /locations/service-areas`
 
 ---
@@ -211,6 +230,23 @@ Default:
 ```
 http://localhost:5206
 ```
+
+Set environment variables before running:
+
+```
+AZURE_STORAGE_CONNECTION_STRING=YOUR_STORAGE_CONNECTION_STRING
+```
+
+You can also place it in `backend/LocationDemo.Api/appsettings.Local.json`:
+
+```json
+{
+  "AzureStorage": {
+    "ConnectionString": "YOUR_STORAGE_CONNECTION_STRING"
+  }
+}
+```
+
 
 ### Frontend
 

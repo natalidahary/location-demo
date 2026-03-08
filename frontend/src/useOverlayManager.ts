@@ -19,6 +19,7 @@ export function useOverlayManager({
 }: OverlayManagerArgs) {
   const overlayLayerRef = useRef<atlas.layer.ImageLayer | null>(null);
   const overlayUrlRef = useRef<string | null>(null);
+  const overlayFileRef = useRef<File | null>(null);
   const overlayCornersRef = useRef<Coord[] | null>(null);
   const geoStartRef = useRef<Coord | null>(null);
   const menuHandlesRef = useRef<{ x: number; y: number }[]>([]);
@@ -26,8 +27,11 @@ export function useOverlayManager({
 
   const [overlayMode, setOverlayMode] = useState<"none" | "manual" | "geo">("none");
   const [overlayActive, setOverlayActive] = useState(false);
+  const [overlaySelected, setOverlaySelected] = useState(false);
   const [overlayLocked, setOverlayLocked] = useState(false);
   const [overlayOpacity, setOverlayOpacity] = useState(0.8);
+  const [overlaySaved, setOverlaySaved] = useState(false);
+  const [overlayId, setOverlayId] = useState<string | null>(null);
   const [overlayHandles, setOverlayHandles] = useState<{ x: number; y: number }[]>(
     []
   );
@@ -70,7 +74,8 @@ export function useOverlayManager({
   useEffect(() => {
     if (!mapInstance.current) return;
     const map = mapInstance.current;
-    const isEditing = overlayMode === "manual" && overlayActive && !overlayLocked;
+    const isEditing =
+      overlayMode === "manual" && overlayActive && overlaySelected && !overlayLocked;
     if (isEditing) {
       if (!userInteractionRef.current) {
         userInteractionRef.current = map.getUserInteraction();
@@ -128,6 +133,7 @@ export function useOverlayManager({
     overlayCornersRef.current = corners;
     updateHandlesNow();
     setOverlayActive(true);
+    setOverlaySelected(true);
     requestAnimationFrame(() => updateHandlesNow());
   };
 
@@ -142,6 +148,9 @@ export function useOverlayManager({
     removeOverlay();
     const url = URL.createObjectURL(file);
     overlayUrlRef.current = url;
+    overlayFileRef.current = file;
+    setOverlaySaved(false);
+    setOverlayId(null);
     setOverlayMode("manual");
     const rect = mapRef.current?.getBoundingClientRect();
     if (rect && rect.width > 0 && rect.height > 0) {
@@ -173,19 +182,61 @@ export function useOverlayManager({
     ]);
   };
 
-  const startGeoOverlay = (file: File) => {
+  const parseWorldFile = (text: string) => {
+    const values = text
+      .trim()
+      .split(/\s+/)
+      .map((v) => Number(v))
+      .filter((v) => Number.isFinite(v));
+    if (values.length < 6) return null;
+    const [A, D, B, E, C, F] = values;
+    return { A, B, C, D, E, F };
+  };
+
+  const loadImageSize = (url: string) =>
+    new Promise<{ width: number; height: number }>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve({ width: img.width, height: img.height });
+      img.onerror = reject;
+      img.src = url;
+    });
+
+  const startGeoOverlayFromWorld = async (imageFile: File, worldText: string) => {
     try {
       if (!confirmReplace()) return;
       if (!mapInstance.current) return;
       removeOverlay();
-      overlayUrlRef.current = URL.createObjectURL(file);
-      setOverlayMode("geo");
-      setGeoInstruction("Select top‑left corner");
+      const parsed = parseWorldFile(worldText);
+      if (!parsed) {
+        setStatus("World file invalid. Expected 6 numeric lines.");
+        return;
+      }
+      overlayUrlRef.current = URL.createObjectURL(imageFile);
+      overlayFileRef.current = imageFile;
+      setOverlaySaved(false);
+      setOverlayId(null);
+      const { width, height } = await loadImageSize(overlayUrlRef.current);
+      const toCoord = (x: number, y: number) => {
+        const lng = parsed.A * x + parsed.B * y + parsed.C;
+        const lat = parsed.D * x + parsed.E * y + parsed.F;
+        return { lng, lat };
+      };
+      const corners = [
+        toCoord(0, 0),
+        toCoord(width, 0),
+        toCoord(width, height),
+        toCoord(0, height)
+      ];
+      applyImageOverlay(corners);
+      setOverlayMode("none");
+      setGeoInstruction(null);
       setGeoPendingCorners(null);
       geoStartRef.current = null;
+      setOverlayLocked(true);
+      setStatus("Geo‑anchored image placed.");
     } catch (error) {
       console.error("[overlay] startGeoOverlay failed", error);
-      setStatus("Failed to start geo-anchored overlay.");
+      setStatus("Failed to place geo‑anchored overlay.");
     }
   };
 
@@ -239,8 +290,67 @@ export function useOverlayManager({
       overlayLayerRef.current = null;
     }
     overlayCornersRef.current = null;
+    overlayFileRef.current = null;
     setOverlayActive(false);
+    setOverlaySelected(false);
     setOverlayHandles([]);
+    setOverlaySaved(false);
+    setOverlayId(null);
+  };
+
+  const markOverlaySaved = (id: string) => {
+    setOverlaySaved(true);
+    setOverlayId(id);
+  };
+
+  const getOverlaySavePayload = () => {
+    if (!overlayFileRef.current || !overlayCornersRef.current) {
+      return null;
+    }
+    return {
+      imageFile: overlayFileRef.current,
+      metadata: {
+        mode: overlayMode,
+        opacity: overlayOpacity,
+        corners: overlayCornersRef.current.map((corner) => ({
+          latitude: corner.lat,
+          longitude: corner.lng
+        }))
+      }
+    };
+  };
+
+  const handleOverlayClick = (coord: Coord) => {
+    if (!overlayActive || !overlayCornersRef.current) {
+      return false;
+    }
+    if (!Number.isFinite(coord.lat) || !Number.isFinite(coord.lng)) {
+      return false;
+    }
+    const poly = overlayCornersRef.current.map((c) => [c.lng, c.lat]);
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i][0];
+      const yi = poly[i][1];
+      const xj = poly[j][0];
+      const yj = poly[j][1];
+      const intersect =
+        yi > coord.lat !== yj > coord.lat &&
+        coord.lng < ((xj - xi) * (coord.lat - yi)) / (yj - yi) + xi;
+      if (intersect) inside = !inside;
+    }
+    if (inside) {
+      setOverlaySelected(true);
+      return true;
+    }
+    if (overlaySelected) {
+      setOverlaySelected(false);
+    }
+    return false;
+  };
+
+  const clearOverlaySelection = () => {
+    setOverlaySelected(false);
   };
 
   const resetManual = () => {
@@ -398,14 +508,19 @@ export function useOverlayManager({
   return {
     overlayMode,
     overlayActive,
+    overlaySelected,
     overlayLocked,
     overlayOpacity,
+    overlaySaved,
+    overlayId,
     overlayHandles,
     geoInstruction,
     geoPendingCorners,
     startManualOverlay,
-    startGeoOverlay,
+    startGeoOverlayFromWorld,
     handleGeoClick,
+    handleOverlayClick,
+    clearOverlaySelection,
     applyGeoPlacement,
     cancelGeoPlacement,
     beginDragHandle,
@@ -413,6 +528,8 @@ export function useOverlayManager({
     removeOverlay,
     resetManual,
     setOpacity,
-    setOverlayLocked
+    setOverlayLocked,
+    getOverlaySavePayload,
+    markOverlaySaved
   };
 }

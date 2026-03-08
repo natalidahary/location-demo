@@ -86,6 +86,11 @@ label {
   position: relative;
 }
 
+.file-name {
+  font-size: 0.85rem;
+  color: #6c5a4f;
+}
+
 input {
   padding: 10px 12px;
   border-radius: 12px;

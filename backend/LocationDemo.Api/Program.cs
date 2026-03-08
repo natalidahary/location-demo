@@ -14,6 +14,8 @@ using LocationDemo.Api.Location.Spatial;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.WebUtilities;
 using System.Globalization;
+using Azure.Storage.Blobs;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -36,7 +38,10 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 app.UseCors("AllowFrontend");
 
 app.MapPost("/locations/geocode", async (
@@ -268,6 +273,146 @@ app.MapPost("/locations/isoline", async (IsolineRequest request, ILocationServic
     return Results.Ok(ApiResponse<IsolineResponse>.Ok(result));
 })
 .WithName("Isoline");
+
+app.MapPost("/overlays", async (HttpRequest request, IConfiguration config, CancellationToken ct) =>
+{
+    if (!request.HasFormContentType)
+    {
+        return Results.BadRequest(ApiResponse<string>.Fail("InvalidForm", "Expected multipart form data."));
+    }
+
+    var form = await request.ReadFormAsync(ct);
+    var image = form.Files.GetFile("image");
+    var metadataJson = form["metadata"].FirstOrDefault();
+
+    if (image is null || string.IsNullOrWhiteSpace(metadataJson))
+    {
+        return Results.BadRequest(ApiResponse<string>.Fail(
+            "MissingData",
+            "Image file and metadata are required."));
+    }
+
+    var metadata = JsonSerializer.Deserialize<OverlayMetadata>(metadataJson, new JsonSerializerOptions
+    {
+        PropertyNameCaseInsensitive = true
+    });
+
+    if (metadata is null || metadata.Corners.Count != 4)
+    {
+        return Results.BadRequest(ApiResponse<string>.Fail(
+            "InvalidMetadata",
+            "Overlay metadata is invalid."));
+    }
+
+    var connectionString =
+        config["AZURE_STORAGE_CONNECTION_STRING"]
+        ?? config["AzureStorage:ConnectionString"]
+        ?? config["ConnectionStrings:AzureStorage"];
+    if (string.IsNullOrWhiteSpace(connectionString))
+    {
+        return Results.Json(
+            ApiResponse<string>.Fail(
+                "StorageNotConfigured",
+                "Azure Storage connection string is missing."),
+            statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    var container = new BlobContainerClient(connectionString, "overlays");
+    await container.CreateIfNotExistsAsync(cancellationToken: ct);
+
+    var id = string.IsNullOrWhiteSpace(metadata.Id) ? Guid.NewGuid().ToString("N") : metadata.Id;
+    var ext = Path.GetExtension(image.FileName);
+    if (string.IsNullOrWhiteSpace(ext))
+    {
+        ext = image.ContentType == "image/png" ? ".png" : ".jpg";
+    }
+
+    var imageBlobName = $"{id}{ext}";
+    var imageBlob = container.GetBlobClient(imageBlobName);
+    await using (var stream = image.OpenReadStream())
+    {
+        await imageBlob.UploadAsync(stream, overwrite: true, cancellationToken: ct);
+    }
+
+    metadata.Id = id;
+    metadata.ImageFileName = image.FileName;
+    metadata.ImageContentType = image.ContentType;
+    metadata.ImageBlobName = imageBlobName;
+    metadata.ImageUrl = imageBlob.Uri.ToString();
+    metadata.CreatedAt = DateTimeOffset.UtcNow;
+
+    var metadataBlobName = $"{id}.json";
+    metadata.MetadataBlobName = metadataBlobName;
+    var metadataBlob = container.GetBlobClient(metadataBlobName);
+    var metadataBytes = JsonSerializer.SerializeToUtf8Bytes(metadata, new JsonSerializerOptions
+    {
+        WriteIndented = true
+    });
+    await using (var metaStream = new MemoryStream(metadataBytes))
+    {
+        await metadataBlob.UploadAsync(metaStream, overwrite: true, cancellationToken: ct);
+    }
+
+    return Results.Ok(ApiResponse<OverlayMetadata>.Ok(metadata));
+})
+.WithName("SaveOverlay");
+
+app.MapDelete("/overlays/{id}", async (string id, IConfiguration config, CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(id))
+    {
+        return Results.BadRequest(ApiResponse<string>.Fail(
+            "InvalidId",
+            "Overlay id is required."));
+    }
+
+    var connectionString =
+        config["AZURE_STORAGE_CONNECTION_STRING"]
+        ?? config["AzureStorage:ConnectionString"]
+        ?? config["ConnectionStrings:AzureStorage"];
+    if (string.IsNullOrWhiteSpace(connectionString))
+    {
+        return Results.Json(
+            ApiResponse<string>.Fail(
+                "StorageNotConfigured",
+                "Azure Storage connection string is missing."),
+            statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    var container = new BlobContainerClient(connectionString, "overlays");
+    await container.CreateIfNotExistsAsync(cancellationToken: ct);
+
+    var metadataBlobName = $"{id}.json";
+    var metadataBlob = container.GetBlobClient(metadataBlobName);
+    if (!await metadataBlob.ExistsAsync(ct))
+    {
+        return Results.NotFound(ApiResponse<string>.Fail(
+            "OverlayNotFound",
+            "Overlay metadata not found."));
+    }
+
+    OverlayMetadata? metadata = null;
+    await using (var metaStream = new MemoryStream())
+    {
+        var download = await metadataBlob.DownloadToAsync(metaStream, ct);
+        metaStream.Position = 0;
+        metadata = await JsonSerializer.DeserializeAsync<OverlayMetadata>(
+            metaStream,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true },
+            ct);
+    }
+
+    if (!string.IsNullOrWhiteSpace(metadata?.ImageBlobName))
+    {
+        var imageBlob = container.GetBlobClient(metadata.ImageBlobName);
+        await imageBlob.DeleteIfExistsAsync(cancellationToken: ct);
+    }
+
+    await metadataBlob.DeleteIfExistsAsync(cancellationToken: ct);
+
+    return Results.Ok(ApiResponse<string>.Ok("Deleted"));
+})
+.WithName("DeleteOverlay");
 
 app.MapPost("/locations/poi", async (
     PoiSearchRequest request,
